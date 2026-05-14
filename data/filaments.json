@@ -1,0 +1,39 @@
+[
+  { "from_halo_id": "thesis", "to_halo_id": "thesis-defense", "strength": "primary", "kind": "career_arc" },
+  { "from_halo_id": "thesis-defense", "to_halo_id": "postdoc-uva", "strength": "primary", "kind": "career_arc" },
+  { "from_halo_id": "postdoc-uva", "to_halo_id": "cca-ny-trip", "strength": "medium", "kind": "career_arc" },
+
+  { "from_halo_id": "thesis", "to_halo_id": "euclid-howls", "strength": "primary", "kind": "knowledge" },
+  { "from_halo_id": "thesis", "to_halo_id": "bnt-cnn", "strength": "medium", "kind": "knowledge" },
+  { "from_halo_id": "thesis", "to_halo_id": "wavelet-l1-norm", "strength": "medium", "kind": "knowledge" },
+  { "from_halo_id": "thesis", "to_halo_id": "opt-transport", "strength": "medium", "kind": "knowledge" },
+  { "from_halo_id": "thesis", "to_halo_id": "dl-mass-mapping", "strength": "medium", "kind": "knowledge" },
+  { "from_halo_id": "thesis", "to_halo_id": "wavelet-benchmarks", "strength": "medium", "kind": "knowledge" },
+  { "from_halo_id": "thesis", "to_halo_id": "mass-map-uncertainty", "strength": "medium", "kind": "knowledge" },
+  { "from_halo_id": "thesis", "to_halo_id": "l1-emulator", "strength": "medium", "kind": "knowledge" },
+
+  { "from_halo_id": "wavelet-l1-norm", "to_halo_id": "wavelet-benchmarks", "strength": "medium", "kind": "knowledge", "via_junction": "wavelet-hub" },
+  { "from_halo_id": "wavelet-l1-norm", "to_halo_id": "l1-emulator", "strength": "medium", "kind": "knowledge", "via_junction": "wavelet-hub" },
+  { "from_halo_id": "wavelet-benchmarks", "to_halo_id": "l1-emulator", "strength": "medium", "kind": "knowledge", "via_junction": "wavelet-hub" },
+
+  { "from_halo_id": "bnt-cnn", "to_halo_id": "dl-mass-mapping", "strength": "medium", "kind": "knowledge", "via_junction": "dl-hub" },
+  { "from_halo_id": "dl-mass-mapping", "to_halo_id": "mass-map-uncertainty", "strength": "medium", "kind": "knowledge", "via_junction": "dl-hub" },
+  { "from_halo_id": "bnt-cnn", "to_halo_id": "mass-map-uncertainty", "strength": "medium", "kind": "knowledge", "via_junction": "dl-hub" },
+
+  { "from_halo_id": "euclid-howls", "to_halo_id": "l1-emulator", "strength": "medium", "kind": "dependency" },
+  { "from_halo_id": "euclid-howls", "to_halo_id": "mass-map-uncertainty", "strength": "medium", "kind": "dependency" },
+  { "from_halo_id": "euclid-howls", "to_halo_id": "wavelet-benchmarks", "strength": "medium", "kind": "dependency" },
+
+  { "from_halo_id": "personal-site", "to_halo_id": "claude-infrastructure", "strength": "medium", "kind": "infrastructure" },
+  { "from_halo_id": "claude-infrastructure", "to_halo_id": "claude-arxiv", "strength": "medium", "kind": "infrastructure" },
+
+  { "from_halo_id": "astrostat", "to_halo_id": "thesis", "strength": "medium", "kind": "knowledge" },
+  { "from_halo_id": "astrostat", "to_halo_id": "cca-ny-trip", "strength": "medium", "kind": "dependency" },
+
+  { "from_halo_id": "claude-infrastructure", "to_halo_id": "thesis", "strength": "faint", "kind": "infrastructure" },
+  { "from_halo_id": "claude-infrastructure", "to_halo_id": "bnt-cnn", "strength": "faint", "kind": "infrastructure" },
+  { "from_halo_id": "claude-infrastructure", "to_halo_id": "claude-arxiv", "strength": "faint", "kind": "infrastructure" },
+  { "from_halo_id": "astrostat", "to_halo_id": "claude-infrastructure", "strength": "faint", "kind": "dependency" },
+  { "from_halo_id": "3mt", "to_halo_id": "thesis", "strength": "faint", "kind": "knowledge" },
+  { "from_halo_id": "personal-site", "to_halo_id": "thesis", "strength": "faint", "kind": "knowledge" }
+]
