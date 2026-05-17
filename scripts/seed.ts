@@ -11,7 +11,6 @@
  * (NOT the anon key — RLS would block writes from it).
  */
 
-import { createClient } from "@supabase/supabase-js";
 import { config as loadEnv } from "dotenv";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -20,6 +19,7 @@ import {
   HalosArray,
   validateFilamentEndpoints,
 } from "../lib/halo-schema";
+import { createServerClient } from "../lib/supabase-server";
 
 loadEnv({ path: ".env.local" });
 
@@ -34,9 +34,7 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
 
 const prune = process.argv.includes("--prune");
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-});
+const supabase = createServerClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 function loadJson<T>(rel: string): T {
   return JSON.parse(readFileSync(resolve(rel), "utf-8")) as T;
