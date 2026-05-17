@@ -28,7 +28,18 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-[#0A0214] text-[#E8D6F4]">{children}</body>
+      {/*
+        suppressHydrationWarning silences the SSR/CSR mismatch caused by
+        browser extensions (e.g. Grammarly) that inject attributes onto
+        <body> after first paint. Only suppresses warnings on this element
+        itself, not its children — safe.
+      */}
+      <body
+        suppressHydrationWarning
+        className="min-h-full bg-[#0A0214] text-[#E8D6F4]"
+      >
+        {children}
+      </body>
     </html>
   );
 }
