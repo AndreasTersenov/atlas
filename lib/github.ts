@@ -97,7 +97,8 @@ interface RawCommit {
   html_url: string;
   commit: {
     message: string;
-    author: { name?: string; date: string } | null;
+    author: { name?: string; date?: string } | null;
+    committer: { name?: string; date?: string } | null;
   };
   author: { login?: string } | null;
 }
@@ -114,28 +115,38 @@ interface RawIssue {
 }
 
 const PER_REPO_COMMITS = 10;
+const PER_REPO_OPEN_ITEMS = 20;
 const TOTAL_FEED_CAP = 25;
 
 async function fetchRepoCommits(repo: string): Promise<ActivityItem[]> {
   const data = (await ghFetch(
     `/repos/${repo}/commits?per_page=${PER_REPO_COMMITS}`
   )) as RawCommit[];
-  return data.map((c) => ({
-    kind: "commit" as const,
-    repo,
-    title: c.commit.message.split("\n")[0],
-    url: c.html_url,
-    timestamp: c.commit.author?.date ?? new Date(0).toISOString(),
-    author: c.author?.login ?? c.commit.author?.name ?? null,
-    ref: c.sha.slice(0, 7),
-  }));
+  // Prefer author.date, fall back to committer.date (GitHub guarantees at
+  // least one for any real commit). Drop the row if both are missing rather
+  // than poisoning the feed sort with an epoch timestamp.
+  const items: ActivityItem[] = [];
+  for (const c of data) {
+    const timestamp = c.commit.author?.date ?? c.commit.committer?.date;
+    if (!timestamp) continue;
+    items.push({
+      kind: "commit",
+      repo,
+      title: c.commit.message.split("\n")[0],
+      url: c.html_url,
+      timestamp,
+      author: c.author?.login ?? c.commit.author?.name ?? null,
+      ref: c.sha.slice(0, 7),
+    });
+  }
+  return items;
 }
 
 async function fetchRepoIssuesAndPrs(repo: string): Promise<ActivityItem[]> {
   // /repos/{r}/issues returns both issues and PRs (GitHub treats PRs as a
   // subtype of issue); distinguish by the presence of `pull_request`.
   const data = (await ghFetch(
-    `/repos/${repo}/issues?state=open&per_page=20&sort=updated`
+    `/repos/${repo}/issues?state=open&per_page=${PER_REPO_OPEN_ITEMS}&sort=updated`
   )) as RawIssue[];
   return data.map((i) => ({
     kind: (i.pull_request ? "pull_request" : "issue") as ActivityKind,
@@ -148,18 +159,41 @@ async function fetchRepoIssuesAndPrs(repo: string): Promise<ActivityItem[]> {
   }));
 }
 
-export async function getRepoActivity(
-  repos: string[]
-): Promise<ActivityItem[]> {
-  if (repos.length === 0) return [];
+export interface RepoActivity {
+  items: ActivityItem[];
+  // Repos that 4xx'd / 5xx'd. The panel surfaces these as an inline notice
+  // so a single bad repo (renamed, deleted, PAT lost access) doesn't take
+  // down the whole feed.
+  failedRepos: string[];
+}
 
-  // Fan out per repo, two calls each. Promise.all is fine for v1 — at 3 repos
-  // we issue 6 parallel calls, no need for a concurrency limiter.
-  const results = await Promise.all(
-    repos.flatMap((r) => [fetchRepoCommits(r), fetchRepoIssuesAndPrs(r)])
-  );
+export async function getRepoActivity(repos: string[]): Promise<RepoActivity> {
+  if (repos.length === 0) return { items: [], failedRepos: [] };
 
-  const merged = results.flat();
-  merged.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  return merged.slice(0, TOTAL_FEED_CAP);
+  // Pair each fetch with its source repo so we can attribute failures.
+  // allSettled rather than all: one deleted/renamed repo shouldn't dark the
+  // whole feed.
+  const tasks = repos.flatMap((r) => [
+    { repo: r, p: fetchRepoCommits(r) },
+    { repo: r, p: fetchRepoIssuesAndPrs(r) },
+  ]);
+  const settled = await Promise.allSettled(tasks.map((t) => t.p));
+
+  const items: ActivityItem[] = [];
+  const failed = new Set<string>();
+  settled.forEach((result, i) => {
+    const repo = tasks[i].repo;
+    if (result.status === "fulfilled") {
+      items.push(...result.value);
+    } else {
+      failed.add(repo);
+      console.error(`[github] fetch failed for ${repo}:`, result.reason);
+    }
+  });
+
+  items.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  return {
+    items: items.slice(0, TOTAL_FEED_CAP),
+    failedRepos: Array.from(failed),
+  };
 }

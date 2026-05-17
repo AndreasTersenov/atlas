@@ -14,20 +14,25 @@ interface Props {
   haloId: string;
 }
 
+// Phase = which top-level UI state to render. `isSaving` is tracked
+// separately so the multi-select form stays rendered (with disabled inputs)
+// while the POST is in flight, instead of falling through to an empty list.
 type Phase =
   | { kind: "collapsed" }
   | { kind: "loading" }
   | { kind: "ready"; repos: Repo[] }
-  | { kind: "saving" }
   | { kind: "error"; message: string };
 
-// Inline form rendered inside the Activity zone empty state. Click [Add one]
-// → fetch the user's repos → pick one or more → POST to /api/integrations
-// /github/config → router.refresh() so the panel re-fetches with the new
-// integration row and renders the feed.
+const GENERIC_ERROR = "Couldn’t reach GitHub. Check the server logs.";
+
+// Inline form rendered inside the Activity zone empty state. Click
+// [Add GitHub] → fetch the user's repos → pick one or more → POST to
+// /api/integrations/github/config → router.refresh() so the panel re-fetches
+// with the new integration row and renders the feed.
 export default function ConfigureGitHub({ haloId }: Props) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>({ kind: "collapsed" });
+  const [isSaving, setIsSaving] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
 
@@ -40,22 +45,17 @@ export default function ConfigureGitHub({ haloId }: Props) {
     (async () => {
       try {
         const res = await fetch("/api/integrations/github/repos");
-        const body = await res.json();
         if (cancelled) return;
         if (!res.ok) {
-          setPhase({
-            kind: "error",
-            message: body?.message ?? body?.error ?? `HTTP ${res.status}`,
-          });
+          setPhase({ kind: "error", message: GENERIC_ERROR });
           return;
         }
+        const body = await res.json();
         setPhase({ kind: "ready", repos: body.repos as Repo[] });
       } catch (err) {
         if (cancelled) return;
-        setPhase({
-          kind: "error",
-          message: err instanceof Error ? err.message : "network error",
-        });
+        console.error("[configure-github] repo list fetch failed:", err);
+        setPhase({ kind: "error", message: GENERIC_ERROR });
       }
     })();
     return () => {
@@ -82,30 +82,28 @@ export default function ConfigureGitHub({ haloId }: Props) {
   }
 
   async function handleSave() {
-    if (selected.size === 0) return;
-    setPhase({ kind: "saving" });
+    if (selected.size === 0 || isSaving) return;
+    setIsSaving(true);
     try {
       const res = await fetch("/api/integrations/github/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ haloId, repos: Array.from(selected) }),
       });
-      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setPhase({
-          kind: "error",
-          message: body?.message ?? body?.error ?? `HTTP ${res.status}`,
-        });
+        setIsSaving(false);
+        setPhase({ kind: "error", message: GENERIC_ERROR });
         return;
       }
       // Success — re-render the server component, which will now see the
-      // halo_integrations row and render the activity feed.
+      // halo_integrations row and render the activity feed. We leave
+      // isSaving=true so the form stays disabled until React unmounts it on
+      // the refresh.
       router.refresh();
     } catch (err) {
-      setPhase({
-        kind: "error",
-        message: err instanceof Error ? err.message : "network error",
-      });
+      console.error("[configure-github] save failed:", err);
+      setIsSaving(false);
+      setPhase({ kind: "error", message: GENERIC_ERROR });
     }
   }
 
@@ -133,7 +131,7 @@ export default function ConfigureGitHub({ haloId }: Props) {
   if (phase.kind === "error") {
     return (
       <div className="space-y-2 text-sm">
-        <p className="text-[#E04880]">Couldn’t reach GitHub: {phase.message}</p>
+        <p className="text-[#E04880]">{phase.message}</p>
         <button
           type="button"
           onClick={() => setPhase({ kind: "loading" })}
@@ -146,7 +144,7 @@ export default function ConfigureGitHub({ haloId }: Props) {
   }
 
   const repos = filteredRepos;
-  const allRepos = phase.kind === "ready" ? phase.repos : [];
+  const allRepos = phase.repos;
   const totalLabel =
     allRepos.length === repos.length
       ? `${allRepos.length} repos`
@@ -160,7 +158,8 @@ export default function ConfigureGitHub({ haloId }: Props) {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="filter repos…"
-          className="w-full max-w-sm rounded-md border border-[#3F2570]/60 bg-[#0A0214] px-2 py-1 text-sm text-[#E8D6F4] outline-none placeholder:text-[#3F2570] focus:border-[#9B6BC4]"
+          disabled={isSaving}
+          className="w-full max-w-sm rounded-md border border-[#3F2570]/60 bg-[#0A0214] px-2 py-1 text-sm text-[#E8D6F4] outline-none placeholder:text-[#3F2570] focus:border-[#9B6BC4] disabled:opacity-50"
         />
         <span className="shrink-0 font-mono text-xs text-[#5A4878]">
           {totalLabel}
@@ -171,10 +170,17 @@ export default function ConfigureGitHub({ haloId }: Props) {
           const checked = selected.has(r.full_name);
           return (
             <li key={r.full_name}>
-              <label className="flex cursor-pointer items-start gap-2 rounded-sm px-2 py-1 hover:bg-[#13062A]">
+              <label
+                className={`flex items-start gap-2 rounded-sm px-2 py-1 ${
+                  isSaving
+                    ? "cursor-not-allowed opacity-60"
+                    : "cursor-pointer hover:bg-[#13062A]"
+                }`}
+              >
                 <input
                   type="checkbox"
                   checked={checked}
+                  disabled={isSaving}
                   onChange={() => toggle(r.full_name)}
                   className="mt-1 h-3 w-3 accent-[#9B6BC4]"
                 />
@@ -203,18 +209,21 @@ export default function ConfigureGitHub({ haloId }: Props) {
         <button
           type="button"
           onClick={handleSave}
-          disabled={selected.size === 0}
+          disabled={selected.size === 0 || isSaving}
           className="rounded-md bg-[#9B6BC4] px-3 py-1.5 text-sm font-medium text-[#0A0214] transition-colors hover:bg-[#C5A8DC] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Save {selected.size > 0 ? `(${selected.size})` : ""}
+          {isSaving
+            ? "Saving…"
+            : `Save${selected.size > 0 ? ` (${selected.size})` : ""}`}
         </button>
         <button
           type="button"
+          disabled={isSaving}
           onClick={() => {
             setSelected(new Set());
             setPhase({ kind: "collapsed" });
           }}
-          className="rounded-md border border-[#3F2570]/60 px-3 py-1.5 text-sm font-mono text-[#A878B0] transition-colors hover:border-[#9B6BC4] hover:text-[#E8D6F4]"
+          className="rounded-md border border-[#3F2570]/60 px-3 py-1.5 text-sm font-mono text-[#A878B0] transition-colors hover:border-[#9B6BC4] hover:text-[#E8D6F4] disabled:cursor-not-allowed disabled:opacity-40"
         >
           Cancel
         </button>

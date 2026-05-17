@@ -19,9 +19,11 @@ export async function GET() {
     const repos = await listMyRepos();
     return NextResponse.json({ repos });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "unknown error";
+    // Log full details server-side; the `GITHUB_PAT is not set` instructional
+    // message (and any raw 4xx body from GitHub) shouldn't leak to clients.
+    console.error("[github] listMyRepos failed:", err);
     return NextResponse.json(
-      { error: "github_fetch_failed", message },
+      { error: "github_fetch_failed" },
       { status: 502 }
     );
   }

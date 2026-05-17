@@ -94,22 +94,39 @@ export default async function HaloPanel({
   const isLocked = status === "locked";
 
   // Resolve the (at most one) GitHub integration row and pull its repo list.
-  // If config is shaped wrong, throw rather than silently empty the feed.
+  // safeParse rather than parse: a hand-edited or malformed row should
+  // degrade the Activity zone only, not 500 the whole halo panel.
   const githubRow = integrations.find((i) => i.provider === "github");
-  const githubRepos = githubRow
-    ? GitHubConfig.parse(githubRow.config).repos
-    : [];
+  let githubRepos: string[] = [];
+  let configError: string | null = null;
+  if (githubRow) {
+    const parsed = GitHubConfig.safeParse(githubRow.config);
+    if (parsed.success) {
+      githubRepos = parsed.data.repos;
+    } else {
+      console.error(
+        `[panel] malformed github config for halo ${haloId}:`,
+        parsed.error.issues
+      );
+      configError =
+        "GitHub integration config is malformed. Re-configure to fix.";
+    }
+  }
 
   // Fetch activity in the same request. Failure here shouldn't take down the
-  // whole panel (PAT could be invalid, a repo could be deleted) — capture
-  // the error and render an inline notice in the feed instead.
+  // whole panel — capture the error and render an inline notice in the feed
+  // instead. Generic user-facing message; details go to the server log.
   let activity: ActivityItem[] = [];
-  let activityError: string | null = null;
-  if (githubRepos.length > 0) {
+  let failedRepos: string[] = [];
+  let activityError: string | null = configError;
+  if (githubRepos.length > 0 && !configError) {
     try {
-      activity = await getRepoActivity(githubRepos);
+      const result = await getRepoActivity(githubRepos);
+      activity = result.items;
+      failedRepos = result.failedRepos;
     } catch (err) {
-      activityError = err instanceof Error ? err.message : "unknown error";
+      console.error("[panel] activity fetch failed:", err);
+      activityError = "Couldn’t reach GitHub. Check the server logs.";
     }
   }
 
@@ -221,18 +238,29 @@ export default async function HaloPanel({
                   </span>
                 )}
               </h2>
-              {githubRepos.length === 0 ? (
+              {configError ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-[#E04880]">{configError}</p>
+                  <ConfigureGitHub haloId={halo.id} />
+                </div>
+              ) : githubRepos.length === 0 ? (
                 <ConfigureGitHub haloId={halo.id} />
               ) : activityError ? (
-                <p className="text-sm text-[#E04880]">
-                  Couldn’t reach GitHub: {activityError}
-                </p>
+                <p className="text-sm text-[#E04880]">{activityError}</p>
               ) : activity.length === 0 ? (
                 <p className="text-sm text-[#5A4878]">
-                  No recent activity in the configured repos.
+                  {failedRepos.length === githubRepos.length
+                    ? "Couldn’t reach any configured repo."
+                    : "No recent activity in the configured repos."}
                 </p>
               ) : (
                 <ul className="space-y-2 text-sm">
+                  {failedRepos.length > 0 && (
+                    <li className="rounded-md border border-[#E04880]/40 bg-[#E04880]/10 px-2 py-1 text-xs text-[#E04880]">
+                      Couldn’t reach {failedRepos.join(", ")} — feed shows
+                      results from the remaining repos only.
+                    </li>
+                  )}
                   {activity.map((item) => {
                     const tone = ACTIVITY_ACCENT[item.kind];
                     return (

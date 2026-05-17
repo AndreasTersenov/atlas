@@ -42,18 +42,18 @@ export async function POST(request: Request) {
 
   const { haloId, repos } = parsed.data;
 
-  // Sanity-check the halo id exists. Cheap, and returning a 400 here beats
-  // letting Postgres FK-fail with a less helpful message.
+  // Sanity-check the halo id exists. UX guard only: halos has a world-readable
+  // RLS policy (per V1_PLAN A10 — same structural rows for every user), so this
+  // is not an auth boundary. The upsert below binds the row to user.id, which
+  // IS where ownership lives. Revisit if v2+ introduces per-user halos.
   const { data: halo, error: haloError } = await supabase
     .from("halos")
     .select("id")
     .eq("id", haloId)
     .maybeSingle();
   if (haloError) {
-    return NextResponse.json(
-      { error: "halo_lookup_failed", message: haloError.message },
-      { status: 500 }
-    );
+    console.error("[github] halo lookup failed:", haloError);
+    return NextResponse.json({ error: "halo_lookup_failed" }, { status: 500 });
   }
   if (!halo) {
     return NextResponse.json({ error: "halo_not_found" }, { status: 404 });
@@ -69,10 +69,8 @@ export async function POST(request: Request) {
     { onConflict: "owner_id,halo_id,provider" }
   );
   if (upsertError) {
-    return NextResponse.json(
-      { error: "upsert_failed", message: upsertError.message },
-      { status: 500 }
-    );
+    console.error("[github] halo_integrations upsert failed:", upsertError);
+    return NextResponse.json({ error: "upsert_failed" }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
