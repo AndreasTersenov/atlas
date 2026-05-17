@@ -46,6 +46,10 @@ function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = safeNext(params.get("next"));
+  // The callback route still redirects here with ?error=auth_failed when a
+  // password-reset or future OAuth flow fails. Surface it once on initial
+  // load so the user knows why they landed back on the form.
+  const errorParam = params.get("error");
   const [mode, setMode] = useState<Mode>("sign-in");
   const [state, setState] = useState<State>({ kind: "idle" });
 
@@ -167,6 +171,11 @@ function SignInForm() {
 
           {state.kind === "error" && (
             <p className="text-sm text-[#E04880]">{state.message}</p>
+          )}
+          {state.kind === "idle" && errorParam === "auth_failed" && (
+            <p className="text-sm text-[#E04880]">
+              That link expired or was already used. Sign in to continue.
+            </p>
           )}
         </form>
       )}
