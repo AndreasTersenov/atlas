@@ -1,15 +1,44 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { z } from "zod";
 import HaloNotes from "./notes";
+import ConfigureGitHub from "./configure-github";
 import { createServerClient } from "@/lib/supabase-server";
 import { Domain, Status } from "@/lib/halo-schema";
 import {
   PANEL_DOMAIN_ACCENT,
   PANEL_STATUS_ACCENT,
 } from "@/components/CosmicWebMap/colors";
+import { getRepoActivity, type ActivityItem } from "@/lib/github";
 
 // Cookies are read per-request → page must be dynamic.
 export const dynamic = "force-dynamic";
+
+// Shape of halo_integrations.config when provider = "github". The route
+// handler validates this on write; we re-validate on read so a hand-edited
+// row surfaces as a loud failure instead of an empty feed.
+const GitHubConfig = z.object({
+  repos: z.array(z.string()).min(1),
+});
+
+const ACTIVITY_ACCENT: Record<
+  ActivityItem["kind"],
+  { label: string; tint: string }
+> = {
+  commit: { label: "commit", tint: "#E8A23D" },
+  pull_request: { label: "PR", tint: "#9B6BC4" },
+  issue: { label: "issue", tint: "#5BB8C4" },
+};
+
+function formatTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
 export default async function HaloPanel({
   params,
@@ -64,6 +93,45 @@ export default async function HaloPanel({
   const statusAccent = PANEL_STATUS_ACCENT[status];
   const isLocked = status === "locked";
 
+  // Resolve the (at most one) GitHub integration row and pull its repo list.
+  // safeParse rather than parse: a hand-edited or malformed row should
+  // degrade the Activity zone only, not 500 the whole halo panel.
+  const githubRow = integrations.find((i) => i.provider === "github");
+  let githubRepos: string[] = [];
+  let configError: string | null = null;
+  if (githubRow) {
+    const parsed = GitHubConfig.safeParse(githubRow.config);
+    if (parsed.success) {
+      githubRepos = parsed.data.repos;
+    } else {
+      console.error(
+        `[panel] malformed github config for halo ${haloId}:`,
+        parsed.error.issues
+      );
+      configError =
+        "GitHub integration config is malformed. Re-configure to fix.";
+    }
+  }
+
+  // Fetch activity in the same request. Failure here shouldn't take down the
+  // whole panel — capture the error and render an inline notice in the feed
+  // instead. Generic user-facing message; details go to the server log.
+  let activity: ActivityItem[] = [];
+  let failedRepos: string[] = [];
+  let activityError: string | null = configError;
+  if (githubRepos.length > 0 && !configError) {
+    try {
+      const result = await getRepoActivity(githubRepos);
+      activity = result.items;
+      failedRepos = result.failedRepos;
+    } catch (err) {
+      console.error("[panel] activity fetch failed:", err);
+      activityError = "Couldn’t reach GitHub. Check the server logs.";
+    }
+  }
+
+  const lastActivityTs = activity[0]?.timestamp;
+
   return (
     <main className="min-h-dvh bg-[#0A0214] text-[#E8D6F4]">
       <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
@@ -117,14 +185,31 @@ export default async function HaloPanel({
           </p>
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
             <span className="rounded-md border border-[#3F2570]/60 px-2 py-1 font-mono text-[#5A4878]">
-              last activity: —
+              last activity:{" "}
+              {lastActivityTs ? formatTimestamp(lastActivityTs) : "—"}
             </span>
-            <span
-              className="rounded-md border border-[#3F2570]/60 px-2 py-1 font-mono text-[#5A4878]"
-              title="Wired in v1.4 (GitHub integration)"
-            >
-              open in GitHub →
-            </span>
+            {githubRepos.length > 0 ? (
+              <a
+                href={`https://github.com/${githubRepos[0]}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md border border-[#3F2570]/60 px-2 py-1 font-mono text-[#A878B0] transition-colors hover:border-[#9B6BC4] hover:text-[#E8D6F4]"
+                title={
+                  githubRepos.length > 1
+                    ? `+${githubRepos.length - 1} more configured`
+                    : undefined
+                }
+              >
+                open in GitHub →
+              </a>
+            ) : (
+              <span
+                className="rounded-md border border-[#3F2570]/60 px-2 py-1 font-mono text-[#5A4878]"
+                title="Configure a GitHub integration to enable"
+              >
+                open in GitHub →
+              </span>
+            )}
             <span
               className="rounded-md border border-[#3F2570]/60 px-2 py-1 font-mono text-[#5A4878]"
               title="Wired in v2 (Todoist integration)"
@@ -145,28 +230,68 @@ export default async function HaloPanel({
           <div className="space-y-6 lg:col-span-2">
             {/* Zone 2: Activity feed */}
             <section className="rounded-lg border border-[#3F2570]/60 bg-[#13062A] p-5">
-              <h2 className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-[#A878B0]">
+              <h2 className="mb-3 flex items-baseline justify-between text-xs font-medium uppercase tracking-[0.2em] text-[#A878B0]">
                 Activity
+                {githubRepos.length > 0 && (
+                  <span className="font-mono normal-case tracking-normal text-[10px] text-[#5A4878]">
+                    {githubRepos.join(" · ")}
+                  </span>
+                )}
               </h2>
-              {integrations.length === 0 ? (
+              {configError ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-[#E04880]">{configError}</p>
+                  <ConfigureGitHub haloId={halo.id} />
+                </div>
+              ) : githubRepos.length === 0 ? (
+                <ConfigureGitHub haloId={halo.id} />
+              ) : activityError ? (
+                <p className="text-sm text-[#E04880]">{activityError}</p>
+              ) : activity.length === 0 ? (
                 <p className="text-sm text-[#5A4878]">
-                  No integrations configured.{" "}
-                  <button
-                    type="button"
-                    disabled
-                    title="Coming in v1.4"
-                    className="ml-1 cursor-not-allowed rounded-md border border-[#3F2570]/60 px-2 py-0.5 font-mono text-[#A878B0] opacity-60"
-                  >
-                    [Add one]
-                  </button>
+                  {failedRepos.length === githubRepos.length
+                    ? "Couldn’t reach any configured repo."
+                    : "No recent activity in the configured repos."}
                 </p>
               ) : (
-                <ul className="space-y-2 text-sm text-[#A878B0]">
-                  {integrations.map((i) => (
-                    <li key={i.id} className="font-mono">
-                      {i.provider} configured · feed wiring coming in v1.4
+                <ul className="space-y-2 text-sm">
+                  {failedRepos.length > 0 && (
+                    <li className="rounded-md border border-[#E04880]/40 bg-[#E04880]/10 px-2 py-1 text-xs text-[#E04880]">
+                      Couldn’t reach {failedRepos.join(", ")} — feed shows
+                      results from the remaining repos only.
                     </li>
-                  ))}
+                  )}
+                  {activity.map((item) => {
+                    const tone = ACTIVITY_ACCENT[item.kind];
+                    return (
+                      <li
+                        key={`${item.repo}:${item.ref}`}
+                        className="flex items-baseline gap-3"
+                      >
+                        <span
+                          className="shrink-0 font-mono text-[10px] uppercase tracking-wider"
+                          style={{ color: tone.tint }}
+                        >
+                          {tone.label}
+                        </span>
+                        <span className="shrink-0 font-mono text-xs text-[#5A4878]">
+                          {item.repo} {item.ref}
+                        </span>
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="min-w-0 flex-1 truncate text-[#E8D6F4] hover:text-[#C5A8DC]"
+                          title={item.title}
+                        >
+                          {item.title}
+                        </a>
+                        <span className="shrink-0 font-mono text-xs text-[#5A4878]">
+                          {formatTimestamp(item.timestamp)}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </section>
