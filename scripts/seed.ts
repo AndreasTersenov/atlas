@@ -20,7 +20,7 @@ import {
   validateFilamentEndpoints,
   validateUniqueFilaments,
 } from "../lib/halo-schema";
-import { createServerClient } from "../lib/supabase-server";
+import { createAdminClient } from "../lib/supabase-admin";
 
 loadEnv({ path: ".env.local" });
 
@@ -35,7 +35,7 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
 
 const prune = process.argv.includes("--prune");
 
-const supabase = createServerClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+const supabase = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 function loadJson<T>(rel: string): T {
   return JSON.parse(readFileSync(resolve(rel), "utf-8")) as T;
