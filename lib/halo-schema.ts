@@ -42,12 +42,19 @@ export const GlyphType = z.enum([
 ]);
 export type GlyphType = z.infer<typeof GlyphType>;
 
+// Optional fields use `.nullish()` (= `.optional().nullable()`) because the
+// data can arrive two ways:
+//   * from data/*.json — missing key → `undefined`
+//   * from Supabase    — nullable column → JS `null`
+// Both need to be accepted; a plain `.optional()` rejects null and breaks the
+// cockpit page that reads from Postgres.
+
 export const HaloSchema = z.object({
   id: z.string().min(1).regex(/^[a-z0-9-]+$/, "lowercase kebab-case"),
   name: z.string().min(1),
   domain: Domain,
   description: z.string(),
-  description_long: z.string().optional(),
+  description_long: z.string().nullish(),
   is_public: z.boolean(),
   position_x: z.number(),
   position_y: z.number(),
@@ -62,8 +69,8 @@ export const FilamentSchema = z.object({
   to_halo_id: z.string().min(1),
   strength: Strength,
   kind: z.string().min(1),
-  description: z.string().optional(),
-  via_junction: z.string().optional(),
+  description: z.string().nullish(),
+  via_junction: z.string().nullish(),
 });
 export type Filament = z.infer<typeof FilamentSchema>;
 
