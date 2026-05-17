@@ -7,8 +7,8 @@
  *   npm run db:seed              # upsert only
  *   npm run db:seed -- --prune   # also delete halos/filaments not in JSON
  *
- * Requires SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.local (NOT the
- * anon key — RLS would block writes from it).
+ * Requires NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.local
+ * (NOT the anon key — RLS would block writes from it).
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -80,6 +80,16 @@ async function main() {
 
   // 4. Optional prune
   if (prune) {
+    // Halos: delete any row whose id isn't in the JSON. Guard against an
+    // empty halos.json — building `not in ()` would either error or wipe
+    // the table, both bad. If JSON is empty, require an explicit nuke.
+    if (halos.length === 0) {
+      console.error(
+        "Refusing to prune with halos.length === 0. " +
+          "If you really mean 'delete everything', do it manually in the dashboard."
+      );
+      process.exit(1);
+    }
     const haloIds = halos.map((h) => h.id);
     const { error: pruneHaloErr, count: prunedHalos } = await supabase
       .from("halos")
@@ -90,10 +100,39 @@ async function main() {
       process.exit(1);
     }
     console.log(`✓ pruned ${prunedHalos ?? 0} halos not in JSON`);
-    // Filaments cascade-delete from halos, so a separate filament prune is
-    // only needed for filaments whose endpoints survived but whose row in
-    // JSON disappeared. For v1 the unique constraint handles most of that
-    // via the upsert; skip explicit filament prune.
+
+    // Filaments: cascade-delete handles rows whose endpoints disappeared,
+    // but it doesn't help when a filament is removed from JSON while both
+    // endpoints still exist. Match the JSON set and delete the rest.
+    // We pull current rows, compute the diff in JS (PostgREST has no clean
+    // way to filter on a composite NOT IN), then delete by id.
+    const { data: liveFilaments, error: liveErr } = await supabase
+      .from("filaments")
+      .select("id, from_halo_id, to_halo_id, kind");
+    if (liveErr) {
+      console.error("filament fetch (for prune) failed:", liveErr);
+      process.exit(1);
+    }
+    const wantedKeys = new Set(
+      filaments.map((f) => `${f.from_halo_id}|${f.to_halo_id}|${f.kind}`)
+    );
+    const orphanIds = (liveFilaments ?? [])
+      .filter(
+        (row) =>
+          !wantedKeys.has(`${row.from_halo_id}|${row.to_halo_id}|${row.kind}`)
+      )
+      .map((row) => row.id as string);
+    if (orphanIds.length > 0) {
+      const { error: pruneFilErr } = await supabase
+        .from("filaments")
+        .delete()
+        .in("id", orphanIds);
+      if (pruneFilErr) {
+        console.error("filament prune failed:", pruneFilErr);
+        process.exit(1);
+      }
+    }
+    console.log(`✓ pruned ${orphanIds.length} filaments not in JSON`);
   }
 
   console.log("Seed complete.");

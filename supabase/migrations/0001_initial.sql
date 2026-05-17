@@ -1,8 +1,15 @@
 -- Atlas v1.1 — initial schema
 -- Mirrors docs/ATLAS_HANDOFF.md §5, with the v1 additions from docs/V1_PLAN.md:
 --   * A10 — owner_id columns on per-user tables, RLS policies `auth.uid() = owner_id`
---   * A6 — halos and filaments are public-read (no RLS), single source of truth lives in data/*.json
+--   * A6 — halos and filaments are world-readable: RLS is enabled with a permissive
+--          SELECT policy; INSERT/UPDATE/DELETE are blocked for anon + authenticated
+--          (the seed script writes via the service-role key, which bypasses RLS).
 --   * A14 — no oauth_tokens table in v1 (GitHub uses a PAT, no OAuth flow)
+
+-- ─── extensions ───────────────────────────────────────────────────────────
+-- `gen_random_uuid()` requires pgcrypto. Supabase enables it by default but
+-- declaring it explicitly makes the migration portable.
+create extension if not exists "pgcrypto";
 
 -- ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -26,7 +33,10 @@ create table public.halos (
   domain text not null check (domain in (
     'research', 'career', 'infrastructure', 'teaching', 'personal', 'bronze'
   )),
-  description text,
+  -- description is `not null` so it stays in sync with the zod schema in
+  -- lib/halo-schema.ts (HaloSchema.description: z.string()). Default '' keeps
+  -- backfills safe if someone inserts a halo without one.
+  description text not null default '',
   description_long text,
   is_public boolean not null default false,
   position_x real not null,
@@ -183,6 +193,12 @@ create table public.allowed_emails (
 insert into public.allowed_emails (email, added_by)
   values ('andrewtersenov@gmail.com', 'v1.1 migration')
   on conflict (email) do nothing;
+
+-- Lock down: allowed_emails contains user PII; never expose via PostgREST.
+-- RLS enabled with no policies = anon + authenticated reads are denied.
+-- The signup trigger below runs as `security definer` so it can still
+-- read the table to enforce the allow-list during auth.users inserts.
+alter table public.allowed_emails enable row level security;
 
 create or replace function public.enforce_email_allow_list()
 returns trigger
