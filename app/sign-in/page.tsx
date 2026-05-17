@@ -11,6 +11,7 @@ type Mode = "sign-in" | "sign-up";
 type State =
   | { kind: "idle" }
   | { kind: "submitting" }
+  | { kind: "needs-confirmation"; email: string }
   | { kind: "error"; message: string };
 
 // useSearchParams forces this branch into a client suspense boundary, so the
@@ -55,25 +56,31 @@ function SignInForm() {
 
     setState({ kind: "submitting" });
     const supabase = createBrowserClient();
-    const { error } =
+    const result =
       mode === "sign-in"
         ? await supabase.auth.signInWithPassword({ email, password })
         : await supabase.auth.signUp({ email, password });
 
-    if (error) {
+    if (result.error) {
       // Allow-list trigger from v1.1 raises with errcode 42501 — surface a
       // friendlier message than Supabase's default for that case.
-      const msg = /allow-list/i.test(error.message)
+      const msg = /allow-list/i.test(result.error.message)
         ? "That email isn't allowed to sign up."
-        : error.message;
+        : result.error.message;
       setState({ kind: "error", message: msg });
       return;
     }
 
-    // signUp returns success even when email confirmation is required;
-    // signInWithPassword returns success only when a real session exists.
-    // After either, the browser cookie is set and we can push to /cockpit
-    // — middleware will catch us if the session isn't there.
+    // signUp returns success *without* a session when "Confirm email" is on
+    // in the Supabase dashboard (Authentication → Sign In / Providers →
+    // Email). In that mode, the user gets a confirmation email; only after
+    // they click can a session be issued. Detect this and surface clearly
+    // instead of pushing into a redirect loop with the proxy.
+    if (mode === "sign-up" && !result.data.session) {
+      setState({ kind: "needs-confirmation", email });
+      return;
+    }
+
     router.push(next);
     router.refresh();
   }
@@ -100,51 +107,69 @@ function SignInForm() {
           : "Use your allow-listed email and choose a password."}
       </p>
 
-      <form action={handleSubmit} className="space-y-4">
-        <label className="block">
-          <span className="mb-1 block text-xs uppercase tracking-wider text-[#A878B0]">
-            Email
-          </span>
-          <input
-            type="email"
-            name="email"
-            required
-            autoFocus
-            autoComplete="email"
+      {state.kind === "needs-confirmation" ? (
+        <div className="rounded-md border border-[#FFD176]/40 bg-[#FFD176]/10 p-4 text-sm text-[#FFE7B5]">
+          <p className="font-medium">Account created — confirmation required.</p>
+          <p className="mt-1 text-[#FFE7B5]/80">
+            Supabase is configured to require email confirmation. We sent a
+            link to <strong>{state.email}</strong>. Click it, then come back
+            here and sign in with the password you just set.
+          </p>
+          <p className="mt-3 text-xs text-[#FFE7B5]/60">
+            To skip this step in future, turn off the &ldquo;Confirm email&rdquo;
+            setting under Authentication → Sign In / Providers → Email in
+            the Supabase dashboard.
+          </p>
+        </div>
+      ) : (
+        <form action={handleSubmit} className="space-y-4">
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wider text-[#A878B0]">
+              Email
+            </span>
+            <input
+              type="email"
+              name="email"
+              required
+              autoFocus
+              autoComplete="email"
+              disabled={isSubmitting}
+              className="w-full rounded-md border border-[#3F2570] bg-[#0A0214] px-3 py-2 text-sm text-[#E8D6F4] outline-none focus:border-[#9B6BC4] disabled:opacity-50"
+              placeholder="you@example.com"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wider text-[#A878B0]">
+              Password
+            </span>
+            <input
+              type="password"
+              name="password"
+              required
+              minLength={8}
+              autoComplete={
+                mode === "sign-in" ? "current-password" : "new-password"
+              }
+              disabled={isSubmitting}
+              className="w-full rounded-md border border-[#3F2570] bg-[#0A0214] px-3 py-2 text-sm text-[#E8D6F4] outline-none focus:border-[#9B6BC4] disabled:opacity-50"
+              placeholder={mode === "sign-up" ? "8+ characters" : ""}
+            />
+          </label>
+
+          <button
+            type="submit"
             disabled={isSubmitting}
-            className="w-full rounded-md border border-[#3F2570] bg-[#0A0214] px-3 py-2 text-sm text-[#E8D6F4] outline-none focus:border-[#9B6BC4] disabled:opacity-50"
-            placeholder="you@example.com"
-          />
-        </label>
+            className="w-full rounded-md bg-[#9B6BC4] px-3 py-2 text-sm font-medium text-[#0A0214] transition-colors hover:bg-[#C5A8DC] disabled:opacity-50"
+          >
+            {submitLabel}
+          </button>
 
-        <label className="block">
-          <span className="mb-1 block text-xs uppercase tracking-wider text-[#A878B0]">
-            Password
-          </span>
-          <input
-            type="password"
-            name="password"
-            required
-            minLength={8}
-            autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
-            disabled={isSubmitting}
-            className="w-full rounded-md border border-[#3F2570] bg-[#0A0214] px-3 py-2 text-sm text-[#E8D6F4] outline-none focus:border-[#9B6BC4] disabled:opacity-50"
-            placeholder={mode === "sign-up" ? "8+ characters" : ""}
-          />
-        </label>
-
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full rounded-md bg-[#9B6BC4] px-3 py-2 text-sm font-medium text-[#0A0214] transition-colors hover:bg-[#C5A8DC] disabled:opacity-50"
-        >
-          {submitLabel}
-        </button>
-
-        {state.kind === "error" && (
-          <p className="text-sm text-[#E04880]">{state.message}</p>
-        )}
-      </form>
+          {state.kind === "error" && (
+            <p className="text-sm text-[#E04880]">{state.message}</p>
+          )}
+        </form>
+      )}
 
       <button
         type="button"
