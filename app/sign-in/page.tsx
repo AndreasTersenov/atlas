@@ -1,15 +1,16 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase-browser";
 import { safeNext } from "@/lib/safe-next";
 
+type Mode = "sign-in" | "sign-up";
+
 type State =
   | { kind: "idle" }
-  | { kind: "sending" }
-  | { kind: "sent"; email: string }
+  | { kind: "submitting" }
   | { kind: "error"; message: string };
 
 // useSearchParams forces this branch into a client suspense boundary, so the
@@ -41,83 +42,120 @@ function SignInShell({ children }: { children?: React.ReactNode }) {
 }
 
 function SignInForm() {
-  const [state, setState] = useState<State>({ kind: "idle" });
+  const router = useRouter();
   const params = useSearchParams();
-  // Sanitise before threading through emailRedirectTo — open-redirect guard.
   const next = safeNext(params.get("next"));
-  const errorParam = params.get("error");
+  const [mode, setMode] = useState<Mode>("sign-in");
+  const [state, setState] = useState<State>({ kind: "idle" });
 
   async function handleSubmit(formData: FormData) {
     const email = (formData.get("email") as string)?.trim();
-    if (!email) return;
-    setState({ kind: "sending" });
+    const password = formData.get("password") as string;
+    if (!email || !password) return;
+
+    setState({ kind: "submitting" });
     const supabase = createBrowserClient();
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
-      },
-    });
+    const { error } =
+      mode === "sign-in"
+        ? await supabase.auth.signInWithPassword({ email, password })
+        : await supabase.auth.signUp({ email, password });
+
     if (error) {
-      setState({ kind: "error", message: error.message });
+      // Allow-list trigger from v1.1 raises with errcode 42501 — surface a
+      // friendlier message than Supabase's default for that case.
+      const msg = /allow-list/i.test(error.message)
+        ? "That email isn't allowed to sign up."
+        : error.message;
+      setState({ kind: "error", message: msg });
       return;
     }
-    setState({ kind: "sent", email });
+
+    // signUp returns success even when email confirmation is required;
+    // signInWithPassword returns success only when a real session exists.
+    // After either, the browser cookie is set and we can push to /cockpit
+    // — middleware will catch us if the session isn't there.
+    router.push(next);
+    router.refresh();
   }
+
+  const isSubmitting = state.kind === "submitting";
+  const heading = mode === "sign-in" ? "Sign in to Atlas" : "Create your account";
+  const submitLabel =
+    mode === "sign-in"
+      ? isSubmitting
+        ? "Signing in…"
+        : "Sign in"
+      : isSubmitting
+        ? "Creating…"
+        : "Create account";
+  const toggleLabel =
+    mode === "sign-in" ? "First time? Create an account" : "Have an account? Sign in";
 
   return (
     <SignInShell>
-      <h1 className="mb-2 text-xl font-medium text-[#E8D6F4]">
-        Sign in to Atlas
-      </h1>
+      <h1 className="mb-2 text-xl font-medium text-[#E8D6F4]">{heading}</h1>
       <p className="mb-6 text-sm text-[#A878B0]">
-        Enter your email to receive a magic link. Allow-listed accounts only.
+        {mode === "sign-in"
+          ? "Email + password. Allow-listed accounts only."
+          : "Use your allow-listed email and choose a password."}
       </p>
 
-      {state.kind === "sent" ? (
-        <div className="rounded-md border border-[#5BB8C4]/40 bg-[#5BB8C4]/10 p-4 text-sm text-[#A8DAE0]">
-          <p className="font-medium">Check your inbox.</p>
-          <p className="mt-1 text-[#A8DAE0]/80">
-            We sent a magic link to <strong>{state.email}</strong>. Click it to
-            sign in.
-          </p>
-        </div>
-      ) : (
-        <form action={handleSubmit} className="space-y-4">
-          <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-wider text-[#A878B0]">
-              Email
-            </span>
-            <input
-              type="email"
-              name="email"
-              required
-              autoFocus
-              autoComplete="email"
-              disabled={state.kind === "sending"}
-              className="w-full rounded-md border border-[#3F2570] bg-[#0A0214] px-3 py-2 text-sm text-[#E8D6F4] outline-none focus:border-[#9B6BC4] disabled:opacity-50"
-              placeholder="you@example.com"
-            />
-          </label>
+      <form action={handleSubmit} className="space-y-4">
+        <label className="block">
+          <span className="mb-1 block text-xs uppercase tracking-wider text-[#A878B0]">
+            Email
+          </span>
+          <input
+            type="email"
+            name="email"
+            required
+            autoFocus
+            autoComplete="email"
+            disabled={isSubmitting}
+            className="w-full rounded-md border border-[#3F2570] bg-[#0A0214] px-3 py-2 text-sm text-[#E8D6F4] outline-none focus:border-[#9B6BC4] disabled:opacity-50"
+            placeholder="you@example.com"
+          />
+        </label>
 
-          <button
-            type="submit"
-            disabled={state.kind === "sending"}
-            className="w-full rounded-md bg-[#9B6BC4] px-3 py-2 text-sm font-medium text-[#0A0214] transition-colors hover:bg-[#C5A8DC] disabled:opacity-50"
-          >
-            {state.kind === "sending" ? "Sending…" : "Send magic link"}
-          </button>
+        <label className="block">
+          <span className="mb-1 block text-xs uppercase tracking-wider text-[#A878B0]">
+            Password
+          </span>
+          <input
+            type="password"
+            name="password"
+            required
+            minLength={8}
+            autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
+            disabled={isSubmitting}
+            className="w-full rounded-md border border-[#3F2570] bg-[#0A0214] px-3 py-2 text-sm text-[#E8D6F4] outline-none focus:border-[#9B6BC4] disabled:opacity-50"
+            placeholder={mode === "sign-up" ? "8+ characters" : ""}
+          />
+        </label>
 
-          {state.kind === "error" && (
-            <p className="text-sm text-[#E04880]">{state.message}</p>
-          )}
-          {errorParam === "auth_failed" && state.kind === "idle" && (
-            <p className="text-sm text-[#E04880]">
-              That link expired or was already used. Request a new one.
-            </p>
-          )}
-        </form>
-      )}
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="w-full rounded-md bg-[#9B6BC4] px-3 py-2 text-sm font-medium text-[#0A0214] transition-colors hover:bg-[#C5A8DC] disabled:opacity-50"
+        >
+          {submitLabel}
+        </button>
+
+        {state.kind === "error" && (
+          <p className="text-sm text-[#E04880]">{state.message}</p>
+        )}
+      </form>
+
+      <button
+        type="button"
+        onClick={() => {
+          setMode(mode === "sign-in" ? "sign-up" : "sign-in");
+          setState({ kind: "idle" });
+        }}
+        className="mt-6 block w-full text-center text-xs uppercase tracking-wider text-[#A878B0] hover:text-[#D4BCE6]"
+      >
+        {toggleLabel}
+      </button>
     </SignInShell>
   );
 }
