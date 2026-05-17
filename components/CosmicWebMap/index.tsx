@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { VIEW_H, VIEW_W } from "./colors";
 import { renderHoverOverlay, renderStatic } from "./renderer";
 import type { Filament, Halo } from "./types";
@@ -8,11 +9,16 @@ import type { Filament, Halo } from "./types";
 interface Props {
   halos: Halo[];
   filaments: Filament[];
+  // When set, halo clicks navigate to `${linkPrefix}${haloId}` instead of
+  // logging. Cockpit passes "/cockpit/" to get per-halo command panels; the
+  // public map omits it so clicks stay no-ops until v2 ships `/p/[halo-id]`.
+  linkPrefix?: string;
 }
 
 const ASPECT = VIEW_W / VIEW_H;
 
-export default function CosmicWebMap({ halos, filaments }: Props) {
+export default function CosmicWebMap({ halos, filaments, linkPrefix }: Props) {
+  const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const staticRef = useRef<HTMLCanvasElement | null>(null);
@@ -124,11 +130,12 @@ export default function CosmicWebMap({ halos, filaments }: Props) {
 
   const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
-    if (hit) {
-      // v0: routing comes in v1 — just log.
-      // eslint-disable-next-line no-console
-      console.log("[atlas] halo clicked:", hit.id, hit);
+    if (!hit) return;
+    if (linkPrefix) {
+      router.push(`${linkPrefix}${hit.id}`);
+      return;
     }
+    console.log("[atlas] halo clicked:", hit.id, hit);
   };
 
   return (

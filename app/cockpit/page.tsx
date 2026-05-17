@@ -46,7 +46,7 @@ export default async function Cockpit() {
 
   return (
     <main className="relative flex h-dvh w-screen items-center justify-center overflow-hidden bg-[#0A0214] p-2 sm:p-4">
-      <CosmicWebMap halos={halos} filaments={filaments} />
+      <CosmicWebMap halos={halos} filaments={filaments} linkPrefix="/cockpit/" />
 
       {/* Cockpit chrome: signed-in indicator + sign-out */}
       <div className="pointer-events-none absolute left-0 top-0 z-10 flex w-full items-start justify-between p-3 text-xs sm:p-4">
