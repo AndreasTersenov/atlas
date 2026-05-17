@@ -1,4 +1,4 @@
-import type { Domain, Junction } from "./types";
+import type { Domain, Junction, Status } from "./types";
 
 export const VIEW_W = 730;
 export const VIEW_H = 640;
@@ -146,3 +146,29 @@ export const NAMED_JUNCTIONS: Junction[] = [
   { id: "wavelet-hub", x: 337, y: 263, intensity: 1 },
   { id: "dl-hub", x: 371, y: 405, intensity: 1 },
 ];
+
+// Panel chrome accents used on /cockpit/[haloId]. Co-located with the map
+// palette so a future domain/status addition updates both surfaces from one
+// place. Derived from HALO_PALETTE but tuned for muted pill backgrounds
+// (HALO_PALETTE entries are gradient stops, not flat solids).
+export interface PanelAccent {
+  bg: string;
+  text: string;
+  ring: string;
+}
+
+export const PANEL_DOMAIN_ACCENT: Record<Domain, PanelAccent> = {
+  research: { bg: "#3A1820", text: "#FFE7B5", ring: "#E8A23D" },
+  career: { bg: "#1A3540", text: "#A8DAE0", ring: "#5BB8C4" },
+  infrastructure: { bg: "#2A1842", text: "#E8D6F4", ring: "#9B6BC4" },
+  teaching: { bg: "#1E3520", text: "#D5EED5", ring: "#6FA86F" },
+  bronze: { bg: "#3A2818", text: "#F0DAA8", ring: "#C49B5B" },
+  personal: { bg: "#1F1F25", text: "#9C9CA8", ring: "#7A7A82" },
+};
+
+export const PANEL_STATUS_ACCENT: Record<Status, Omit<PanelAccent, "ring">> = {
+  active: { bg: "#1E3520", text: "#A8D8A8" },
+  dormant: { bg: "#2A1842", text: "#C5A8DC" },
+  locked: { bg: "#1F1F25", text: "#9C9CA8" },
+  completed: { bg: "#1A3540", text: "#A8DAE0" },
+};
