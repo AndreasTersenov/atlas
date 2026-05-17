@@ -1,0 +1,85 @@
+// Single source of truth for the Halo + Filament data shape.
+// Used at runtime (validating JSON loads, parsing DB rows) and by scripts/seed.ts.
+// If you add a field, update both this schema and supabase/migrations/000N_*.sql.
+
+import { z } from "zod";
+
+export const Domain = z.enum([
+  "research",
+  "career",
+  "infrastructure",
+  "teaching",
+  "personal",
+  "bronze",
+]);
+export type Domain = z.infer<typeof Domain>;
+
+export const Status = z.enum(["active", "dormant", "completed", "locked"]);
+export type Status = z.infer<typeof Status>;
+
+export const Strength = z.enum(["primary", "medium", "faint"]);
+export type Strength = z.infer<typeof Strength>;
+
+export const GlyphType = z.enum([
+  "thesis_dag_lens",
+  "cnn_stack",
+  "wavelet_quadtree",
+  "transport_plan",
+  "input_cnn_output",
+  "method_grid_3x3",
+  "posterior_contours",
+  "mlp_small",
+  "survey_patch",
+  "podium_panel",
+  "rotunda",
+  "pins_flight_arc",
+  "browser_window",
+  "node_tree",
+  "paper_highlight",
+  "classroom_seating",
+  "stopwatch_3min",
+  "padlock",
+]);
+export type GlyphType = z.infer<typeof GlyphType>;
+
+export const HaloSchema = z.object({
+  id: z.string().min(1).regex(/^[a-z0-9-]+$/, "lowercase kebab-case"),
+  name: z.string().min(1),
+  domain: Domain,
+  description: z.string(),
+  description_long: z.string().optional(),
+  is_public: z.boolean(),
+  position_x: z.number(),
+  position_y: z.number(),
+  radius: z.number().positive(),
+  glyph_type: GlyphType,
+  status: Status,
+});
+export type Halo = z.infer<typeof HaloSchema>;
+
+export const FilamentSchema = z.object({
+  from_halo_id: z.string().min(1),
+  to_halo_id: z.string().min(1),
+  strength: Strength,
+  kind: z.string().min(1),
+  description: z.string().optional(),
+  via_junction: z.string().optional(),
+});
+export type Filament = z.infer<typeof FilamentSchema>;
+
+export const HalosArray = z.array(HaloSchema);
+export const FilamentsArray = z.array(FilamentSchema);
+
+// Cross-file invariant: every filament endpoint must resolve to a halo id.
+export function validateFilamentEndpoints(
+  halos: Halo[],
+  filaments: Filament[]
+): { ok: true } | { ok: false; missing: string[] } {
+  const ids = new Set(halos.map((h) => h.id));
+  const missing: string[] = [];
+  for (const f of filaments) {
+    if (!ids.has(f.from_halo_id)) missing.push(`from:${f.from_halo_id}`);
+    if (!ids.has(f.to_halo_id)) missing.push(`to:${f.to_halo_id}`);
+  }
+  return missing.length ? { ok: false, missing } : { ok: true };
+}
