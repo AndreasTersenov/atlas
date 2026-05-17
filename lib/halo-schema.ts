@@ -83,3 +83,19 @@ export function validateFilamentEndpoints(
   }
   return missing.length ? { ok: false, missing } : { ok: true };
 }
+
+// Schema invariant: (from_halo_id, to_halo_id, kind) is the composite unique
+// key in the DB. Mirror that in JSON so duplicates are caught at validate
+// time, not at upsert time (clearer error than Postgres error 21000).
+export function validateUniqueFilaments(
+  filaments: Filament[]
+): { ok: true } | { ok: false; duplicates: string[] } {
+  const seen = new Set<string>();
+  const dupes: string[] = [];
+  for (const f of filaments) {
+    const key = `${f.from_halo_id} → ${f.to_halo_id} (${f.kind})`;
+    if (seen.has(key)) dupes.push(key);
+    else seen.add(key);
+  }
+  return dupes.length ? { ok: false, duplicates: dupes } : { ok: true };
+}

@@ -32,7 +32,6 @@
 
   { "from_halo_id": "claude-infrastructure", "to_halo_id": "thesis", "strength": "faint", "kind": "infrastructure" },
   { "from_halo_id": "claude-infrastructure", "to_halo_id": "bnt-cnn", "strength": "faint", "kind": "infrastructure" },
-  { "from_halo_id": "claude-infrastructure", "to_halo_id": "claude-arxiv", "strength": "faint", "kind": "infrastructure" },
   { "from_halo_id": "astrostat", "to_halo_id": "claude-infrastructure", "strength": "faint", "kind": "dependency" },
   { "from_halo_id": "3mt", "to_halo_id": "thesis", "strength": "faint", "kind": "knowledge" },
   { "from_halo_id": "personal-site", "to_halo_id": "thesis", "strength": "faint", "kind": "knowledge" }

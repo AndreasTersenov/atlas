@@ -18,6 +18,7 @@ import {
   FilamentsArray,
   HalosArray,
   validateFilamentEndpoints,
+  validateUniqueFilaments,
 } from "../lib/halo-schema";
 import { createServerClient } from "../lib/supabase-server";
 
@@ -50,6 +51,15 @@ async function main() {
   const xref = validateFilamentEndpoints(halos, filaments);
   if (!xref.ok) {
     console.error("Filaments reference unknown halo ids:", xref.missing);
+    process.exit(1);
+  }
+
+  const uniq = validateUniqueFilaments(filaments);
+  if (!uniq.ok) {
+    console.error(
+      "Duplicate filaments (composite key from+to+kind must be unique):",
+      uniq.duplicates
+    );
     process.exit(1);
   }
 
