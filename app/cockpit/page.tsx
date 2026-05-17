@@ -13,13 +13,13 @@ export const dynamic = "force-dynamic";
 export default async function Cockpit() {
   const supabase = await createServerClient();
 
-  // Belt-and-braces: middleware already redirected unauthenticated requests,
-  // but double-check here so a broken middleware config can't accidentally
-  // expose cockpit data.
+  // Belt-and-braces: the proxy already redirected unauthenticated requests,
+  // but double-check here so a broken proxy config can't accidentally expose
+  // cockpit data. Carry the original target through so re-auth lands back.
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/sign-in");
+  if (!user) redirect(`/sign-in?next=${encodeURIComponent("/cockpit")}`);
 
   const [haloResult, filamentResult] = await Promise.all([
     supabase.from("halos").select("*"),

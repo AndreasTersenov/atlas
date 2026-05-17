@@ -27,7 +27,8 @@ export async function createServerClient(): Promise<SupabaseClient<Database>> {
             );
           } catch {
             // Setting cookies from a Server Component throws — that's fine,
-            // middleware handles session refresh on the next request.
+            // the Next.js proxy (proxy.ts) handles session refresh on the
+            // next request.
           }
         },
       },

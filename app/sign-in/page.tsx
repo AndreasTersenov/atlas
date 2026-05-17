@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase-browser";
+import { safeNext } from "@/lib/safe-next";
 
 type State =
   | { kind: "idle" }
@@ -42,7 +43,8 @@ function SignInShell({ children }: { children?: React.ReactNode }) {
 function SignInForm() {
   const [state, setState] = useState<State>({ kind: "idle" });
   const params = useSearchParams();
-  const next = params.get("next") ?? "/cockpit";
+  // Sanitise before threading through emailRedirectTo — open-redirect guard.
+  const next = safeNext(params.get("next"));
   const errorParam = params.get("error");
 
   async function handleSubmit(formData: FormData) {

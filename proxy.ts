@@ -38,9 +38,14 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
+    // Preserve the full original path+search so deep links to e.g.
+    // /cockpit/thesis?tab=runs survive the sign-in round-trip.
+    const original =
+      request.nextUrl.pathname + (request.nextUrl.search ?? "");
     const url = request.nextUrl.clone();
     url.pathname = "/sign-in";
-    url.searchParams.set("next", request.nextUrl.pathname);
+    url.search = "";
+    url.searchParams.set("next", original);
     return NextResponse.redirect(url);
   }
 
