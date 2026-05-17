@@ -132,7 +132,10 @@ export default function CosmicWebMap({ halos, filaments, linkPrefix }: Props) {
     const hit = hitTest(e.clientX, e.clientY);
     if (!hit) return;
     if (linkPrefix) {
-      router.push(`${linkPrefix}${hit.id}`);
+      // Tolerate callers that pass "/cockpit" or "/cockpit/" identically —
+      // otherwise the former joins as "/cockpitthesis".
+      const base = linkPrefix.endsWith("/") ? linkPrefix.slice(0, -1) : linkPrefix;
+      router.push(`${base}/${hit.id}`);
       return;
     }
     console.log("[atlas] halo clicked:", hit.id, hit);

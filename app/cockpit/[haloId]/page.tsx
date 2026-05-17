@@ -2,29 +2,14 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import HaloNotes from "./notes";
 import { createServerClient } from "@/lib/supabase-server";
-import type { Domain, Status } from "@/lib/halo-schema";
+import { Domain, Status } from "@/lib/halo-schema";
+import {
+  PANEL_DOMAIN_ACCENT,
+  PANEL_STATUS_ACCENT,
+} from "@/components/CosmicWebMap/colors";
 
 // Cookies are read per-request → page must be dynamic.
 export const dynamic = "force-dynamic";
-
-// Muted accent backgrounds + ring colors per domain, cribbed from
-// components/CosmicWebMap/colors.ts. Re-inlined here so the panel doesn't
-// pull a client-shaped module into a server component.
-const DOMAIN_ACCENT: Record<Domain, { bg: string; text: string; ring: string }> = {
-  research: { bg: "#3A1820", text: "#FFE7B5", ring: "#E8A23D" },
-  career: { bg: "#1A3540", text: "#A8DAE0", ring: "#5BB8C4" },
-  infrastructure: { bg: "#2A1842", text: "#E8D6F4", ring: "#9B6BC4" },
-  teaching: { bg: "#1E3520", text: "#D5EED5", ring: "#6FA86F" },
-  bronze: { bg: "#3A2818", text: "#F0DAA8", ring: "#C49B5B" },
-  personal: { bg: "#1F1F25", text: "#9C9CA8", ring: "#7A7A82" },
-};
-
-const STATUS_ACCENT: Record<Status, { bg: string; text: string }> = {
-  active: { bg: "#1E3520", text: "#A8D8A8" },
-  dormant: { bg: "#2A1842", text: "#C5A8DC" },
-  locked: { bg: "#1F1F25", text: "#9C9CA8" },
-  completed: { bg: "#1A3540", text: "#A8DAE0" },
-};
 
 export default async function HaloPanel({
   params,
@@ -70,14 +55,14 @@ export default async function HaloPanel({
   const integrations = integrationsResult.data ?? [];
   const agents = agentsResult.data ?? [];
 
-  // halos.domain / halos.status come back as `string` (the schema admits any
-  // value at the DB level); narrow with a lookup-or-default rather than
-  // blow up on unknown values.
-  const accent =
-    DOMAIN_ACCENT[halo.domain as Domain] ?? DOMAIN_ACCENT.research;
-  const statusAccent =
-    STATUS_ACCENT[halo.status as Status] ?? STATUS_ACCENT.active;
-  const isLocked = halo.status === "locked";
+  // The DB has CHECK constraints restricting halos.domain and halos.status to
+  // the known enums, so a value outside the set means schema drift — fail
+  // loudly (ZodError → 500) instead of papering over it with a default.
+  const domain = Domain.parse(halo.domain);
+  const status = Status.parse(halo.status);
+  const accent = PANEL_DOMAIN_ACCENT[domain];
+  const statusAccent = PANEL_STATUS_ACCENT[status];
+  const isLocked = status === "locked";
 
   return (
     <main className="min-h-dvh bg-[#0A0214] text-[#E8D6F4]">
@@ -116,13 +101,13 @@ export default async function HaloPanel({
               className="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider"
               style={{ background: accent.bg, color: accent.text }}
             >
-              {halo.domain}
+              {domain}
             </span>
             <span
               className="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider"
               style={{ background: statusAccent.bg, color: statusAccent.text }}
             >
-              {halo.status}
+              {status}
             </span>
           </div>
           <p className="mt-3 max-w-2xl text-sm text-[#A878B0]">
