@@ -496,17 +496,32 @@ Technical decisions that emerged during implementation (not in the original hand
 
 **Goal:** add auth, the private cockpit, and prove end-to-end that one tool integration and one agent dispatch works.
 
-Deliverables:
-- Clerk auth wired in. Sign-in route, middleware protecting `/cockpit/*`.
+**Status (2026-05-17): in progress.** Sub-phases planned in `docs/V1_PLAN.md`:
+
+- v1.1 ✅ shipped — Supabase schema + JSON→DB seed pipeline
+- v1.2 ✅ shipped — Supabase Auth (magic-link) + protected `/cockpit` showing all 19 halos
+- v1.2.1 ✅ shipped — switched magic-link → email+password (Gmail's link-prefetcher kept consuming the OTP)
+- v1.3 ⏳ next — `/cockpit/[halo-id]` panel skeleton (four zones, empty states, click-through from cockpit map)
+- v1.4 ⏳ — first integration: **GitHub via PAT** (replaced Todoist because the Todoist developer console UI was harder to navigate; integration architecture is identical)
+- v1.5 ⏳ — Modal + FastAPI + first on-demand agent on thesis
+- v1.6 ⏳ — activity-driven brightness on the cockpit map (Thesis-only in v1)
+
+Decisions that overrode this section's original spec:
+- **Auth: Supabase Auth, not Clerk** (V1_PLAN A1)
+- **First integration: GitHub PAT, not Todoist OAuth** (operational call during prereqs)
+- **Production domain: stay on `atlas-rust-one.vercel.app`** — custom domain deferred (V1_PLAN A3)
+
+Deliverables (original list, kept for reference):
+- ~~Clerk~~ Supabase Auth wired in. Sign-in route, proxy protecting `/cockpit/*`.
 - Supabase database deployed with the schema from §5.
 - Halos seeded from JSON into Supabase.
 - `/cockpit` route: same map but full halo set.
 - `/cockpit/[halo-id]` route: command panel skeleton with the four zones.
-- **One integration end-to-end:** Todoist. OAuth flow, config UI per halo, task list rendered in the activity feed.
+- **One integration end-to-end:** ~~Todoist~~ GitHub. PAT in env, config UI per halo, commits/PRs/issues rendered in the activity feed.
 - **One agent type end-to-end:** on-demand task. FastAPI deployed to Modal, one preloaded agent ("draft an email reply") for one halo (thesis), streaming response in the command panel.
 - Agent run history persisted to `agent_runs`.
 
-Success criterion: Andreas can sign in, open the thesis halo, see his Todoist tasks for that project, and dispatch a "draft email" agent that returns useful output preloaded with thesis context.
+Success criterion: Andreas can sign in, open the thesis halo, see recent activity from his configured GitHub repos for that project, and dispatch a "draft email" agent that returns useful output preloaded with thesis context.
 
 ### v2 — Month 3-4 (the real cockpit)
 

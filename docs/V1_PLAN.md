@@ -75,7 +75,7 @@ The handoff left several decisions open or recommended-but-not-confirmed. v1 for
 User's proposed sequence is sound. Below is the same skeleton with explicit "shippable as" markers per phase so each lands independently. Estimated effort: solo developer time, optimistic.
 
 ### Phase 1 — Supabase project + schema + JSON migration
-**Time:** ~1 day. **Shippable as: v1.1.**
+**Time:** ~1 day. **Shippable as: v1.1.** ✅ **SHIPPED 2026-05-17** (commit `e86f88e`, PR #1)
 
 1. Create Supabase project (`atlas-prod` org-or-personal). Note the URL, anon key, service role key.
 2. `supabase/migrations/0001_initial.sql`: tables from §5 + the `owner_id` additions from A10. Apply via `supabase db push`.
@@ -88,7 +88,9 @@ User's proposed sequence is sound. Below is the same skeleton with explicit "shi
 **Done = Supabase contains halos+filaments matching JSON; smoke test confirmed parity; types generated.**
 
 ### Phase 2 — Supabase Auth + protected cockpit shell
-**Time:** ~1 day. **Shippable as: v1.2.**
+**Time:** ~1 day. **Shippable as: v1.2.** ✅ **SHIPPED 2026-05-17** (commit `5a0ea8b`, PR #2)
+
+**Plus follow-up v1.2.1** (commit `5eb19e4`, PR #3): magic-link OTP was hitting Gmail's link-prefetcher (which consumes the one-time code before the user clicks). Switched to email + password sign-in via the same form. Initial user created via Supabase dashboard's admin "Add user" since the "Confirm email" toggle wasn't visible in Andreas's project UI.
 
 1. Add `@supabase/auth-helpers-nextjs` (or `@supabase/ssr` — newer pattern).
 2. `app/sign-in/page.tsx`: magic-link form (email → click link → land on `/cockpit`).
@@ -321,7 +323,9 @@ Decomposed into a binary checklist (every item must pass):
 
 ## Status
 
-All decisions resolved 2026-05-17. Awaiting Andreas's go-ahead to begin Phase 1 (Supabase project setup + schema + JSON migration).
+All decisions resolved 2026-05-17. **Phases 1 + 2 + 2.1 shipped.** Next up: Phase 3 (`/cockpit/[halo-id]` panel skeleton).
+
+See [`docs/V1_STATUS.md`](./V1_STATUS.md) for the live state (what's deployed where, known gotchas, deferred items).
 
 ### Prerequisites before coding starts (running checklist)
 
