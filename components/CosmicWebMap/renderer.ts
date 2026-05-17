@@ -309,6 +309,14 @@ function drawHalo(ctx: CanvasRenderingContext2D, halo: Halo, hover = false) {
   const palette = HALO_PALETTE[halo.domain];
   const { position_x: x, position_y: y, radius: r } = halo;
 
+  // Dormant halos (e.g. Anthropic fellowship not-yet-applied) render faint:
+  // reduced haze, dashed boundary, dimmer glyph. Per V1_PLAN A4 — keeps the
+  // halo present-but-quiet so it's a visible goal rather than a noisy one.
+  const isDormant = halo.status === "dormant";
+  const isLocked = halo.status === "locked";
+  const dormantHazeScale = isDormant ? 0.35 : 1;
+  const dormantGlyphAlpha = isDormant ? 0.55 : 1;
+
   // Mask the halo interior so background filaments/particles/dashes don't
   // bleed through and clutter the glyph. The haze still extends past `r` and
   // blends with the cosmic web outside the boundary, preserving "embedded".
@@ -326,7 +334,10 @@ function drawHalo(ctx: CanvasRenderingContext2D, halo: Halo, hover = false) {
   const drawHazeLayer = (radius: number, alphaScale: number) => {
     const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
     for (const stop of palette.haze) {
-      const a = (hover ? Math.min(1, stop.alpha * 1.3) : stop.alpha) * alphaScale;
+      const a =
+        (hover ? Math.min(1, stop.alpha * 1.3) : stop.alpha) *
+        alphaScale *
+        dormantHazeScale;
       g.addColorStop(stop.offset, rgba(stop.color, a));
     }
     ctx.fillStyle = g;
@@ -337,18 +348,21 @@ function drawHalo(ctx: CanvasRenderingContext2D, halo: Halo, hover = false) {
   drawHazeLayer(outerR, 0.85);
   drawHazeLayer(midR, 0.7);
 
-  // Thin boundary outline (dashed for locked halos per v8)
+  // Thin boundary outline (dashed for locked + dormant halos)
   ctx.save();
-  ctx.strokeStyle = rgba(palette.outline, hover ? 1 : 0.55);
+  ctx.strokeStyle = rgba(palette.outline, hover ? 1 : isDormant ? 0.35 : 0.55);
   ctx.lineWidth = hover ? 0.9 : 0.6;
-  if (halo.status === "locked") ctx.setLineDash([2, 2]);
+  if (isLocked || isDormant) ctx.setLineDash([2, 2]);
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 
   // Glyph
+  ctx.save();
+  if (isDormant) ctx.globalAlpha = dormantGlyphAlpha;
   drawGlyph(ctx, halo.glyph_type, x, y, r, palette.glyph);
+  ctx.restore();
 }
 
 // Per-halo label-offset overrides (added on top of `radius + 18`).

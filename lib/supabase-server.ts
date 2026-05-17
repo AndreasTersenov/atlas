@@ -1,31 +1,37 @@
-// Server-side Supabase client factory.
+// Server-side Supabase client for Next.js server components and route handlers.
 //
-// Works around `@supabase/realtime-js` requiring a native WebSocket: Node < 22
-// doesn't have one, so the default `createClient(...)` crashes on Node 20 even
-// when realtime isn't used. We pass the `ws` package as the realtime transport
-// so the client constructs cleanly. Vercel production runs Node 22+ where this
-// is a no-op; local dev on Node 20 needs the shim.
+// Uses the anon key plus a cookie-bound session, so RLS policies (`auth.uid()
+// = owner_id`) apply correctly for the signed-in user. This is the normal
+// "fetch from Supabase in an RSC" client.
 //
-// Use with the service-role key for bypass-RLS writes (scripts/seed.ts, admin
-// server actions). Use with the anon key for normal server-component reads.
+// For trusted scripts that need to bypass RLS (seeding, admin actions),
+// use lib/supabase-admin.ts instead.
 
-import {
-  createClient,
-  type SupabaseClient,
-  type SupabaseClientOptions,
-} from "@supabase/supabase-js";
-import WebSocket from "ws";
+import { createServerClient as createSSRServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "./database.types";
 
-export function createServerClient(
-  url: string,
-  key: string,
-  extra: SupabaseClientOptions<"public"> = {}
-): SupabaseClient {
-  return createClient(url, key, {
-    auth: { persistSession: false },
-    realtime: {
-      transport: WebSocket as unknown as typeof globalThis.WebSocket,
-    },
-    ...extra,
-  });
+export async function createServerClient(): Promise<SupabaseClient<Database>> {
+  const cookieStore = await cookies();
+  return createSSRServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => cookieStore.getAll(),
+        setAll: (cookiesToSet) => {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // Setting cookies from a Server Component throws — that's fine,
+            // the Next.js proxy (proxy.ts) handles session refresh on the
+            // next request.
+          }
+        },
+      },
+    }
+  );
 }
