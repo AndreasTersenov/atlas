@@ -13,11 +13,20 @@ interface Props {
   // logging. Cockpit passes "/cockpit/" to get per-halo command panels; the
   // public map omits it so clicks stay no-ops until v2 ships `/p/[halo-id]`.
   linkPrefix?: string;
+  // Per-halo activity score in [0, 1] driven by Claude session recency
+  // (v1.5). Cockpit fetches it from claude_sessions; the public map omits
+  // it and gets the v1.4-identical render.
+  activityByHaloId?: Record<string, number>;
 }
 
 const ASPECT = VIEW_W / VIEW_H;
 
-export default function CosmicWebMap({ halos, filaments, linkPrefix }: Props) {
+export default function CosmicWebMap({
+  halos,
+  filaments,
+  linkPrefix,
+  activityByHaloId,
+}: Props) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -43,7 +52,7 @@ export default function CosmicWebMap({ halos, filaments, linkPrefix }: Props) {
       const halo = halos.find((x) => x.id === hoveredId);
       if (halo) {
         ctx.setTransform(dpr * (w / VIEW_W), 0, 0, dpr * (h / VIEW_H), 0, 0);
-        renderHoverOverlay(ctx, halo);
+        renderHoverOverlay(ctx, halo, activityByHaloId?.[halo.id] ?? 0);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
       }
     }
@@ -61,7 +70,7 @@ export default function CosmicWebMap({ halos, filaments, linkPrefix }: Props) {
     const offCtx = off.getContext("2d");
     if (!offCtx) return;
     offCtx.setTransform(dpr * (w / VIEW_W), 0, 0, dpr * (h / VIEW_H), 0, 0);
-    renderStatic(offCtx, { halos, filaments });
+    renderStatic(offCtx, { halos, filaments, activityByHaloId });
   };
 
   // Resize observer: keep the canvas backing store in sync with CSS size.
@@ -93,7 +102,7 @@ export default function CosmicWebMap({ halos, filaments, linkPrefix }: Props) {
     ro.observe(container);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [halos, filaments]);
+  }, [halos, filaments, activityByHaloId]);
 
   // Repaint when hover changes.
   useEffect(() => {

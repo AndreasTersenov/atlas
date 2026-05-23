@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 import HaloNotes from "./notes";
 import ConfigureGitHub from "./configure-github";
+import SessionsZone from "./sessions-zone";
 import { createServerClient } from "@/lib/supabase-server";
 import { Domain, Status } from "@/lib/halo-schema";
 import {
@@ -10,6 +11,12 @@ import {
   PANEL_STATUS_ACCENT,
 } from "@/components/CosmicWebMap/colors";
 import { getRepoActivity, type ActivityItem } from "@/lib/github";
+import type { Database } from "@/lib/database.types";
+
+type SessionMessage = Database["public"]["Tables"]["session_messages"]["Row"];
+
+const SESSIONS_PER_HALO_CAP = 10;
+const MESSAGES_PER_SESSION_INITIAL = 50;
 
 // Cookies are read per-request → page must be dynamic.
 export const dynamic = "force-dynamic";
@@ -59,13 +66,21 @@ export default async function HaloPanel({
   }
 
   // Halos table is public-read (no RLS — same rows for everyone, per A10).
-  // halo_integrations and halo_agents are RLS-scoped to auth.uid() = owner_id
-  // so the server client only sees the current user's rows.
-  const [haloResult, integrationsResult, agentsResult] = await Promise.all([
-    supabase.from("halos").select("*").eq("id", haloId).maybeSingle(),
-    supabase.from("halo_integrations").select("*").eq("halo_id", haloId),
-    supabase.from("halo_agents").select("*").eq("halo_id", haloId),
-  ]);
+  // halo_integrations, halo_agents, claude_sessions are RLS-scoped to
+  // auth.uid() = owner_id so the server client only sees the current user's
+  // rows.
+  const [haloResult, integrationsResult, agentsResult, sessionsResult] =
+    await Promise.all([
+      supabase.from("halos").select("*").eq("id", haloId).maybeSingle(),
+      supabase.from("halo_integrations").select("*").eq("halo_id", haloId),
+      supabase.from("halo_agents").select("*").eq("halo_id", haloId),
+      supabase
+        .from("claude_sessions")
+        .select("*")
+        .eq("halo_id", haloId)
+        .order("last_seen", { ascending: false })
+        .limit(SESSIONS_PER_HALO_CAP),
+    ]);
 
   if (haloResult.error) {
     throw new Error(`Failed to load halo: ${haloResult.error.message}`);
@@ -79,10 +94,34 @@ export default async function HaloPanel({
   if (agentsResult.error) {
     throw new Error(`Failed to load agents: ${agentsResult.error.message}`);
   }
+  if (sessionsResult.error) {
+    throw new Error(
+      `Failed to load Claude sessions: ${sessionsResult.error.message}`
+    );
+  }
 
   const halo = haloResult.data;
   const integrations = integrationsResult.data ?? [];
   const agents = agentsResult.data ?? [];
+  const sessions = sessionsResult.data ?? [];
+
+  // Fetch the last N messages per session, in parallel. N+1 queries but N
+  // is capped at SESSIONS_PER_HALO_CAP — fine for v1.5.
+  const sessionMessages: Record<string, SessionMessage[]> = {};
+  if (sessions.length > 0) {
+    const perSession = await Promise.all(
+      sessions.map((s) =>
+        supabase
+          .from("session_messages")
+          .select("*")
+          .eq("session_id", s.id)
+          .order("sequence", { ascending: false })
+          .limit(MESSAGES_PER_SESSION_INITIAL)
+          .then((res) => ({ id: s.id, rows: (res.data ?? []).reverse() }))
+      )
+    );
+    for (const r of perSession) sessionMessages[r.id] = r.rows;
+  }
 
   // The DB has CHECK constraints restricting halos.domain and halos.status to
   // the known enums, so a value outside the set means schema drift — fail
@@ -228,6 +267,26 @@ export default async function HaloPanel({
         {/* Body: feed + agents stacked on the left, notes on the right */}
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-6 lg:col-span-2">
+            {/* Zone 1.5: Live Claude sessions (v1.5) — above the GitHub feed
+                so "what's happening now" sits above "what happened recently". */}
+            <section className="rounded-lg border border-[#3F2570]/60 bg-[#13062A] p-5">
+              <h2 className="mb-3 flex items-baseline justify-between text-xs font-medium uppercase tracking-[0.2em] text-[#A878B0]">
+                Sessions
+                {sessions.length > 0 && (
+                  <span className="font-mono normal-case tracking-normal text-[10px] text-[#5A4878]">
+                    {sessions.filter((s) => s.status === "active").length} active
+                    {" · "}
+                    {sessions.length} total
+                  </span>
+                )}
+              </h2>
+              <SessionsZone
+                haloId={halo.id}
+                initialSessions={sessions}
+                initialMessages={sessionMessages}
+              />
+            </section>
+
             {/* Zone 2: Activity feed */}
             <section className="rounded-lg border border-[#3F2570]/60 bg-[#13062A] p-5">
               <h2 className="mb-3 flex items-baseline justify-between text-xs font-medium uppercase tracking-[0.2em] text-[#A878B0]">
