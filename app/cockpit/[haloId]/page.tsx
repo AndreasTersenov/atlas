@@ -117,10 +117,17 @@ export default async function HaloPanel({
           .eq("session_id", s.id)
           .order("sequence", { ascending: false })
           .limit(MESSAGES_PER_SESSION_INITIAL)
-          .then((res) => ({ id: s.id, rows: (res.data ?? []).reverse() }))
+          .then((res) => ({ id: s.id, res }))
       )
     );
-    for (const r of perSession) sessionMessages[r.id] = r.rows;
+    for (const r of perSession) {
+      if (r.res.error) {
+        throw new Error(
+          `Failed to load messages for session ${r.id}: ${r.res.error.message}`
+        );
+      }
+      sessionMessages[r.id] = (r.res.data ?? []).reverse();
+    }
   }
 
   // The DB has CHECK constraints restricting halos.domain and halos.status to

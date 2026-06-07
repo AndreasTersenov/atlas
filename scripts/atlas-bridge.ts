@@ -33,10 +33,17 @@
 // owner_id set explicitly. Single-user system; revisit when adding
 // collaborators.
 
-import "dotenv/config";
+// Load .env.local (Next.js convention) rather than the default .env so the
+// bridge picks up the same SUPABASE_SERVICE_ROLE_KEY the rest of the
+// repo uses. Falls back to plain .env if .env.local is absent (e.g. on a
+// freshly-cloned HPC checkout where the user only copied `.env`).
+import { config as loadEnv } from "dotenv";
+loadEnv({ path: ".env.local" });
+loadEnv(); // back-fill from .env without overriding existing keys
+
 import chokidar from "chokidar";
 import { readFile } from "node:fs/promises";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { basename, resolve, dirname } from "node:path";
 
 import { createAdminClient } from "../lib/supabase-admin";
@@ -49,13 +56,17 @@ import {
 import {
   parseLine,
   normalizeRole,
+  sanitizeForJsonb,
   type TranscriptLine,
 } from "../lib/atlas-transcript";
 import type { Database, Json } from "../lib/database.types";
 
 // ─── config ───────────────────────────────────────────────────────────────
 
-const PROJECTS_DIR = resolve(process.env.HOME ?? "~", ".claude", "projects");
+// homedir() reads $HOME on Unix / equivalents on Windows; falls back to the
+// passwd-database / user-profile entry if HOME is unset. Don't use the
+// literal "~" — Node's `resolve()` doesn't expand it.
+const PROJECTS_DIR = resolve(homedir(), ".claude", "projects");
 const MAPPING_PATH = process.env.ATLAS_MAPPING_PATH ?? DEFAULT_MAPPING_PATH;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const IDLE_SWEEP_INTERVAL_MS = 60_000;
@@ -230,7 +241,21 @@ async function processNewLines(
     if (!lineText.trim()) continue;
     const parsed: TranscriptLine | null = parseLine(lineText);
     if (!parsed) {
-      log(`skip malformed line at ${state.claudeSessionId}:${seq}`);
+      // Insert a sentinel row instead of skipping silently. Advancing
+      // lastSequence past this index would have permanently dropped the
+      // event from the feed; the sentinel preserves the gap so the cockpit
+      // can render "1 malformed event" rather than just lying.
+      log(`malformed line at ${state.claudeSessionId}:${seq}`);
+      rowsToInsert.push({
+        owner_id: ownerId,
+        session_id: state.rowId,
+        sequence: seq,
+        role: "malformed",
+        content: {
+          _error: "json_parse_failed",
+          _raw: lineText.slice(0, 500),
+        } as unknown as Json,
+      });
       continue;
     }
     rowsToInsert.push({
@@ -238,7 +263,7 @@ async function processNewLines(
       session_id: state.rowId,
       sequence: seq,
       role: normalizeRole(parsed),
-      content: parsed as unknown as Json,
+      content: sanitizeForJsonb(parsed) as unknown as Json,
     });
   }
 
@@ -254,14 +279,21 @@ async function processNewLines(
   }
 
   state.lastSequence = completeLines.length;
-  state.lastTouched = Date.now();
 
   // Heartbeat last_seen on every batch with new content. The 30s timer
   // below handles sessions that have written nothing but are still "open".
-  await client
+  const { error: heartbeatError } = await client
     .from("claude_sessions")
     .update({ last_seen: new Date().toISOString(), status: "active" })
     .eq("id", state.rowId);
+  if (heartbeatError) {
+    // Don't advance lastTouched — keep the next heartbeat timer eligible to
+    // retry, otherwise the bridge thinks the row is fresh in DB when it
+    // isn't and the cockpit shows stale last_seen.
+    log(`heartbeat update failed for ${state.claudeSessionId}:`, heartbeatError);
+    return;
+  }
+  state.lastTouched = Date.now();
 }
 
 async function markEnded(

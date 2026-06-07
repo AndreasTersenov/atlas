@@ -45,6 +45,12 @@ export default async function Cockpit() {
     supabase.from("filaments").select("*"),
     // Latest session per halo. RLS scopes to the current user, so this is
     // their cross-machine activity only.
+    //
+    // TODO(v1.6+): replace with a server-side aggregation (a postgres view
+    // returning `(halo_id, max(last_seen))` or `distinct on (halo_id)
+    // order by last_seen desc`). At v1.5 single-user scale (<100 sessions
+    // total ever) the over-fetch is invisible; revisit when session count
+    // crosses a few hundred.
     supabase
       .from("claude_sessions")
       .select("halo_id, last_seen")

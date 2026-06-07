@@ -146,6 +146,12 @@ export default function SessionsZone({
             setSessions((cur) =>
               cur.some((s) => s.id === row.id) ? cur : [row, ...cur]
             );
+            // Seed an empty buffer so the message INSERT handler (which
+            // filters out unknown session_ids) accepts events for this
+            // session as soon as the bridge starts streaming them.
+            setMessages((cur) =>
+              row.id in cur ? cur : { ...cur, [row.id]: [] }
+            );
           } else if (payload.eventType === "UPDATE") {
             const row = payload.new as Session;
             setSessions((cur) =>
@@ -154,6 +160,12 @@ export default function SessionsZone({
           } else if (payload.eventType === "DELETE") {
             const id = (payload.old as { id: string }).id;
             setSessions((cur) => cur.filter((s) => s.id !== id));
+            setMessages((cur) => {
+              if (!(id in cur)) return cur;
+              const next = { ...cur };
+              delete next[id];
+              return next;
+            });
           }
         }
       )
@@ -167,7 +179,12 @@ export default function SessionsZone({
         (payload) => {
           const msg = payload.new as Message;
           setMessages((cur) => {
-            const existing = cur[msg.session_id] ?? [];
+            // Drop inserts for sessions this panel doesn't render. RLS
+            // already scopes Realtime events to the current user, but a
+            // user with many active sessions across halos would otherwise
+            // grow this buffer unboundedly with irrelevant rows.
+            if (!(msg.session_id in cur)) return cur;
+            const existing = cur[msg.session_id];
             // Cap per-session message buffer at 50 — same as the server
             // initial fetch — so the panel doesn't grow unbounded for a
             // long-running session.

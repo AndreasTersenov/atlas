@@ -9,8 +9,8 @@
 // adds doesn't break the bridge.
 //
 // The bridge stores the parsed line verbatim in session_messages.content
-// and bucket-normalizes the event type into a small `role` set the cockpit
-// can switch on for rendering.
+// (after sanitizeForJsonb) and bucket-normalizes the event type into a
+// small `role` set the cockpit can switch on for rendering.
 
 import { z } from "zod";
 
@@ -77,4 +77,31 @@ export function normalizeRole(line: TranscriptLine): NormalizedRole {
   // main transcript view by default.
   if (line.type === "user" && line.isMeta) return "meta";
   return ROLE_FROM_TYPE[line.type] ?? "meta";
+}
+
+// Postgres `jsonb` rejects the literal NUL character (0x00) with errcode
+// 22P05 ("unsupported Unicode escape sequence"). Claude Code transcripts
+// occasionally embed one — usually inside tool output that piped binary
+// content through a Read or Bash result. Walk the parsed object and strip
+// the byte from any string before handing it to supabase-js.
+//
+// We construct the regex from the codepoint rather than writing a literal
+// NUL in source — editors / serializers (including the one writing this
+// file) tend to drop or collapse the literal byte, producing broken code.
+const NUL_CHAR = String.fromCharCode(0);
+const NUL_RE = new RegExp(NUL_CHAR, "g");
+
+export function sanitizeForJsonb(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.includes(NUL_CHAR) ? value.replace(NUL_RE, "") : value;
+  }
+  if (Array.isArray(value)) return value.map(sanitizeForJsonb);
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as object)) {
+      out[k] = sanitizeForJsonb(v);
+    }
+    return out;
+  }
+  return value;
 }

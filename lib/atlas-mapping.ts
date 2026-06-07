@@ -12,17 +12,21 @@ import { resolve } from "node:path";
 import picomatch from "picomatch";
 import { z } from "zod";
 
-export const MappingSchema = z.object({
-  owner_email: z.string().email(),
-  halos: z
-    .array(
-      z.object({
-        pattern: z.string().min(1),
-        halo_id: z.string().min(1),
-      })
-    )
-    .default([]),
-});
+export const MappingSchema = z
+  .object({
+    owner_email: z.string().email(),
+    halos: z
+      .array(
+        z.object({
+          pattern: z.string().min(1),
+          halo_id: z.string().min(1),
+        })
+      )
+      .default([]),
+  })
+  // Accept unknown keys so docs/mapping.example.json's `_comment` (and any
+  // future non-semantic metadata) doesn't crash the bridge on first load.
+  .passthrough();
 
 export type Mapping = z.infer<typeof MappingSchema>;
 
