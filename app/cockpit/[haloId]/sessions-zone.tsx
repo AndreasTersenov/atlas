@@ -169,79 +169,107 @@ export default function SessionsZone({
     channelOpen.current = true;
 
     const supabase = createBrowserClient();
-    const channel = supabase
-      .channel(`halo-${haloId}-sessions`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "claude_sessions",
-          filter: `halo_id=eq.${haloId}`,
-        },
-        (payload) => {
-          if (payload.eventType === "INSERT") {
-            const row = payload.new as Session;
-            setSessions((cur) =>
-              cur.some((s) => s.id === row.id) ? cur : [row, ...cur]
-            );
-            // Seed an empty buffer so the message INSERT handler (which
-            // filters out unknown session_ids) accepts events for this
-            // session as soon as the bridge starts streaming them.
-            setMessages((cur) =>
-              row.id in cur ? cur : { ...cur, [row.id]: [] }
-            );
-          } else if (payload.eventType === "UPDATE") {
-            const row = payload.new as Session;
-            setSessions((cur) =>
-              cur.map((s) => (s.id === row.id ? row : s))
-            );
-          } else if (payload.eventType === "DELETE") {
-            const id = (payload.old as { id: string }).id;
-            setSessions((cur) => cur.filter((s) => s.id !== id));
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    const subscribe = async () => {
+      // WALRUS evaluates RLS with whatever claims the realtime socket
+      // carried at join time. The cookie session isn't reliably propagated
+      // to the socket before our subscribe runs, in which case the channel
+      // joins as `anon`, RLS filters out every row, and the zone silently
+      // never updates (status still reads SUBSCRIBED). Hand the access
+      // token over explicitly before joining.
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (data.session) {
+        await supabase.realtime.setAuth(data.session.access_token);
+      }
+      if (cancelled) return;
+
+      channel = supabase
+        .channel(`halo-${haloId}-sessions`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "claude_sessions",
+            filter: `halo_id=eq.${haloId}`,
+          },
+          (payload) => {
+            if (payload.eventType === "INSERT") {
+              const row = payload.new as Session;
+              setSessions((cur) =>
+                cur.some((s) => s.id === row.id) ? cur : [row, ...cur]
+              );
+              // Seed an empty buffer so the message INSERT handler (which
+              // filters out unknown session_ids) accepts events for this
+              // session as soon as the bridge starts streaming them.
+              setMessages((cur) =>
+                row.id in cur ? cur : { ...cur, [row.id]: [] }
+              );
+            } else if (payload.eventType === "UPDATE") {
+              const row = payload.new as Session;
+              setSessions((cur) =>
+                cur.map((s) => (s.id === row.id ? row : s))
+              );
+            } else if (payload.eventType === "DELETE") {
+              const id = (payload.old as { id: string }).id;
+              setSessions((cur) => cur.filter((s) => s.id !== id));
+              setMessages((cur) => {
+                if (!(id in cur)) return cur;
+                const next = { ...cur };
+                delete next[id];
+                return next;
+              });
+            }
+          }
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "session_messages",
+            // Conversation roles only — mirrors the server fetch in page.tsx.
+            // Bookkeeping events (meta/system/attachment) would otherwise
+            // dominate the stream and the 50-row buffer.
+            filter: "role=in.(user,assistant,malformed)",
+          },
+          (payload) => {
+            const msg = payload.new as Message;
             setMessages((cur) => {
-              if (!(id in cur)) return cur;
-              const next = { ...cur };
-              delete next[id];
-              return next;
+              // Drop inserts for sessions this panel doesn't render. RLS
+              // already scopes Realtime events to the current user, but a
+              // user with many active sessions across halos would otherwise
+              // grow this buffer unboundedly with irrelevant rows.
+              if (!(msg.session_id in cur)) return cur;
+              const existing = cur[msg.session_id];
+              // Cap per-session message buffer at 50 — same as the server
+              // initial fetch — so the panel doesn't grow unbounded for a
+              // long-running session.
+              const next = [...existing, msg]
+                .sort((a, b) => a.sequence - b.sequence)
+                .slice(-50);
+              return { ...cur, [msg.session_id]: next };
             });
           }
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "session_messages",
-          // Conversation roles only — mirrors the server fetch in page.tsx.
-          // Bookkeeping events (meta/system/attachment) would otherwise
-          // dominate the stream and the 50-row buffer.
-          filter: "role=in.(user,assistant,malformed)",
-        },
-        (payload) => {
-          const msg = payload.new as Message;
-          setMessages((cur) => {
-            // Drop inserts for sessions this panel doesn't render. RLS
-            // already scopes Realtime events to the current user, but a
-            // user with many active sessions across halos would otherwise
-            // grow this buffer unboundedly with irrelevant rows.
-            if (!(msg.session_id in cur)) return cur;
-            const existing = cur[msg.session_id];
-            // Cap per-session message buffer at 50 — same as the server
-            // initial fetch — so the panel doesn't grow unbounded for a
-            // long-running session.
-            const next = [...existing, msg]
-              .sort((a, b) => a.sequence - b.sequence)
-              .slice(-50);
-            return { ...cur, [msg.session_id]: next };
-          });
-        }
-      )
-      .subscribe();
+        )
+        .subscribe((status, err) => {
+          // Surface subscription failures — a CHANNEL_ERROR otherwise fails
+          // silently and the zone just never updates.
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            console.error(`[sessions-zone] realtime ${status}`, err?.message);
+          } else {
+            console.debug(`[sessions-zone] realtime ${status}`);
+          }
+        });
+    };
+    void subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
       channelOpen.current = false;
     };
   }, [haloId]);
