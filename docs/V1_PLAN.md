@@ -44,20 +44,20 @@ The handoff left several decisions open or recommended-but-not-confirmed. v1 for
 | # | Decision | Choice | Notes |
 |---|---|---|---|
 | A1 | Auth | **Supabase Auth** | Single vendor, magic-link, allow-listed email only |
-| A2 | Agent runtime | **Modal** | Per-second billing, room for v3 long-running workflows |
+| A2 | Agent runtime | ~~Modal~~ **WITHDRAWN by V1_5_PLAN §A** — no remote runtime; "agents" are the Claude Code sessions Andreas already runs on his machines | Andreas has Claude Max only (no API budget); Modal plan needed paid API access |
 | A3 | Production domain | **`atlas-rust-one.vercel.app`** for v1 (custom domain deferred — Andreas opted to skip the ~$12/yr cost; nothing in code depends on the domain, can swap anytime) | |
 | A4 | Anthropic halo | **Dormant in cockpit, hidden public** | (Recommendation accepted, no override.) |
 | A5 | Personal-private | **Single placeholder for v1** | Sub-map deferred — content design TBD by Andreas |
 | A6 | Public data source | **`data/halos.json`** | Cockpit reads Supabase separately |
 | A7 | Schema migrations | **Supabase CLI SQL files** | No ORM. Drizzle considered for v2+ if queries get complex |
 | A8 | DB query layer | **`@supabase/supabase-js` + generated types** | `supabase gen types typescript` |
-| A9 | Streaming protocol | **SSE** | Modal `web_endpoint` → Next.js proxy → browser |
+| A9 | Streaming protocol | ~~SSE~~ **AMENDED by V1_5_PLAN §A** — Supabase Realtime row changes; bridge inserts rows, cockpit subscribes | No Modal endpoint to stream from |
 | A10 | RLS shape | **`owner_id` upfront + strict RLS** | `auth.uid() = owner_id` on every per-user table |
 | A11 | Cockpit map fidelity | **Identical to public, full halo set** | Activity-driven brightness lives in v1.6 (see B) |
 | A12 | Panel scope per halo | **Skeleton for all, thesis wired E2E** | Empty states elsewhere |
 | A13 | Notes storage | **localStorage in v1**, Supabase later | Single-user, single-device acceptable |
 | A14 | `/p/[halo-id]` | **Deferred to v2** | Public click stays as `console.log` |
-| A15 | Modal app structure | **One app, one `dispatch` function for v1** | `monitor` / `workflow` added in v2/v3 |
+| A15 | Modal app structure | ~~One app, one `dispatch` function~~ **WITHDRAWN by V1_5_PLAN §A** — no Modal in v1 | See A2 |
 
 ### Operational decisions
 
@@ -129,6 +129,13 @@ User's proposed sequence is sound. Below is the same skeleton with explicit "shi
 
 ### Phase 5 — Modal + FastAPI + first on-demand agent for thesis
 **Time:** ~2.5 days. **Shippable as: v1.5.**
+
+> **SUPERSEDED (2026-05-23):** this phase was replaced wholesale by the
+> cross-machine Claude observatory in [`V1_5_PLAN.md`](./V1_5_PLAN.md) —
+> Andreas has Claude Max only (no Anthropic API budget), and his actual
+> need was visibility over the parallel Claude Code sessions he already
+> runs on macbook + the HPCs, not a dispatch button. Kept for the record;
+> do not build.
 
 1. Sign up for Modal. `modal token new` locally.
 2. Create `modal/atlas_agents.py`:

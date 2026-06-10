@@ -134,6 +134,64 @@ function extractText(content: unknown): string {
   return "";
 }
 
+// Bounded, bottom-pinned transcript view. Without the cap, 50 expanded rows
+// push the Activity/Agents zones off the bottom of the page; without the
+// pin, the view opens on the oldest buffered message and live Realtime
+// arrivals happen out of sight. Stays pinned only while the user is at the
+// bottom — scrolling up to read history is never yanked away.
+function Transcript({ messages }: { messages: Message[] }) {
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const pinnedRef = useRef(true);
+
+  useEffect(() => {
+    const box = boxRef.current;
+    if (box && pinnedRef.current) box.scrollTop = box.scrollHeight;
+  }, [messages]);
+
+  return (
+    <div
+      ref={(el) => {
+        boxRef.current = el;
+        if (el) el.scrollTop = el.scrollHeight; // pin on first mount
+      }}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinnedRef.current =
+          el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      }}
+      className="max-h-80 overflow-y-auto"
+    >
+      <ul className="space-y-1.5">
+        {messages.map((m) => {
+          const displayRole =
+            m.role === "user" && isToolResult(m.content) ? "tool" : m.role;
+          const tone = ROLE_TONE[displayRole] ?? ROLE_TONE.meta;
+          const text = extractText(m.content) || "(no preview)";
+          return (
+            <li key={m.id} className="flex items-baseline gap-2">
+              <span
+                className="shrink-0 font-mono text-[10px] uppercase tracking-wider"
+                style={{ color: tone.tint }}
+              >
+                {tone.label}
+              </span>
+              <span
+                className={`min-w-0 flex-1 whitespace-pre-wrap break-words text-xs ${
+                  displayRole === "tool"
+                    ? "font-mono text-[#A878B0]"
+                    : "text-[#E8D6F4]"
+                }`}
+              >
+                {text.length > 600 ? text.slice(0, 600) + "…" : text}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function shortCwd(cwd: string): string {
   const parts = cwd.split("/").filter(Boolean);
   if (parts.length <= 2) return cwd;
@@ -351,37 +409,7 @@ export default function SessionsZone({
                     No messages buffered yet.
                   </p>
                 ) : (
-                  <ul className="space-y-1.5">
-                    {sessionMessages.map((m) => {
-                      const displayRole =
-                        m.role === "user" && isToolResult(m.content)
-                          ? "tool"
-                          : m.role;
-                      const tone = ROLE_TONE[displayRole] ?? ROLE_TONE.meta;
-                      const text = extractText(m.content) || "(no preview)";
-                      return (
-                        <li key={m.id} className="flex items-baseline gap-2">
-                          <span
-                            className="shrink-0 font-mono text-[10px] uppercase tracking-wider"
-                            style={{ color: tone.tint }}
-                          >
-                            {tone.label}
-                          </span>
-                          <span
-                            className={`min-w-0 flex-1 whitespace-pre-wrap break-words text-xs ${
-                              displayRole === "tool"
-                                ? "font-mono text-[#A878B0]"
-                                : "text-[#E8D6F4]"
-                            }`}
-                          >
-                            {text.length > 600
-                              ? text.slice(0, 600) + "…"
-                              : text}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <Transcript messages={sessionMessages} />
                 )}
               </div>
             )}
