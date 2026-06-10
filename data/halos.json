@@ -226,5 +226,53 @@
     "radius": 24,
     "glyph_type": "padlock",
     "status": "locked"
+  },
+  {
+    "id": "jax-flows",
+    "name": "JAX flows",
+    "domain": "research",
+    "description": "Normalizing flows in JAX — small research side project.",
+    "is_public": true,
+    "position_x": 95,
+    "position_y": 265,
+    "radius": 18,
+    "glyph_type": "mlp_small",
+    "status": "active"
+  },
+  {
+    "id": "lss-pdf-emulator",
+    "name": "LSS-PDF emulator",
+    "domain": "research",
+    "description": "Emulator for LSS PDF statistics — Euclid · HOWLS offshoot.",
+    "is_public": true,
+    "position_x": 480,
+    "position_y": 90,
+    "radius": 18,
+    "glyph_type": "posterior_contours",
+    "status": "active"
+  },
+  {
+    "id": "wale",
+    "name": "WALE",
+    "domain": "research",
+    "description": "Offshoot of the wavelet l1-norm programme.",
+    "is_public": true,
+    "position_x": 60,
+    "position_y": 490,
+    "radius": 18,
+    "glyph_type": "wavelet_quadtree",
+    "status": "active"
+  },
+  {
+    "id": "wl-stats-torch",
+    "name": "WL stats · torch",
+    "domain": "research",
+    "description": "PyTorch toolbox for weak-lensing statistics.",
+    "is_public": true,
+    "position_x": 225,
+    "position_y": 500,
+    "radius": 18,
+    "glyph_type": "method_grid_3x3",
+    "status": "active"
   }
 ]

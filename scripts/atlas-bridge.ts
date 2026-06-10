@@ -243,20 +243,27 @@ async function upsertSessionRow(
 
   let rowId: string;
   if (existing) {
-    // Re-seeing a known session (bridge restart). Refresh status/last_seen
-    // from the file mtime; preserve started_at, cwd, halo_id. (Don't touch
-    // status for stale files — a session the previous run marked `ended`
-    // shouldn't resurrect as `idle` just because the file is still on disk.)
+    // Re-seeing a known session (bridge restart). Re-resolve halo_id so a
+    // mapping rule added since the last run takes effect on old sessions —
+    // otherwise messages would ingest under the new mapping while the
+    // session row stayed unmapped and invisible to the cockpit. Refresh
+    // status/last_seen from the file mtime; preserve started_at, cwd.
+    // (Don't touch status for stale files — a session the previous run
+    // marked `ended` shouldn't resurrect as `idle` just because the file
+    // is still on disk.)
     rowId = existing.id;
-    if (isFresh) {
-      const { error: updateError } = await client
-        .from("claude_sessions")
-        .update({ status: "active", last_seen: observedLastSeen })
-        .eq("id", rowId);
-      if (updateError) {
-        log(`update on resume failed for ${filePath}:`, updateError);
-        return null;
-      }
+    const { error: updateError } = await client
+      .from("claude_sessions")
+      .update({
+        halo_id: haloId,
+        ...(isFresh
+          ? { status: "active" as const, last_seen: observedLastSeen }
+          : {}),
+      })
+      .eq("id", rowId);
+    if (updateError) {
+      log(`update on resume failed for ${filePath}:`, updateError);
+      return null;
     }
   } else {
     const { data: inserted, error: insertError } = await client
