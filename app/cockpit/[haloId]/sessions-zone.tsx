@@ -22,10 +22,32 @@ const STATUS_TONE: Record<Session["status"], { label: string; tint: string }> = 
 const ROLE_TONE: Record<string, { label: string; tint: string }> = {
   user: { label: "you", tint: "#FFE7B5" },
   assistant: { label: "claude", tint: "#C5A8DC" },
+  tool: { label: "tool", tint: "#5BB8C4" },
   attachment: { label: "attach", tint: "#5BB8C4" },
   system: { label: "system", tint: "#5A4878" },
   meta: { label: "meta", tint: "#5A4878" },
+  malformed: { label: "??", tint: "#E04880" },
 };
+
+// Tool results come back as `user`-type JSONL events whose message.content
+// holds tool_result blocks — they aren't things Andreas typed. Detect them
+// so the row can be labeled "tool" instead of "you".
+function isToolResult(content: unknown): boolean {
+  if (typeof content !== "object" || content === null) return false;
+  const c = content as Record<string, unknown>;
+  if (c.type !== "user" || typeof c.message !== "object" || c.message === null)
+    return false;
+  const blocks = (c.message as Record<string, unknown>).content;
+  return (
+    Array.isArray(blocks) &&
+    blocks.some(
+      (b: unknown) =>
+        typeof b === "object" &&
+        b !== null &&
+        (b as Record<string, unknown>).type === "tool_result"
+    )
+  );
+}
 
 // Each session_messages.content is the parsed JSONL line. For rendering, we
 // pull a single "preview text" out of it via best-effort traversal. Claude
@@ -69,19 +91,36 @@ function extractText(content: unknown): string {
       const msg = c.message as Record<string, unknown>;
       if (typeof msg.content === "string") return msg.content;
       if (Array.isArray(msg.content)) {
-        const text = msg.content
-          .filter(
-            (b: unknown) =>
-              typeof b === "object" &&
-              b !== null &&
-              (b as Record<string, unknown>).type === "text" &&
-              typeof (b as Record<string, unknown>).text === "string"
-          )
-          .map((b) => (b as Record<string, unknown>).text as string)
+        const blocks = msg.content as Array<Record<string, unknown>>;
+        const text = blocks
+          .filter((b) => b?.type === "text" && typeof b.text === "string")
+          .map((b) => b.text as string)
           .join("\n");
         if (text) return text;
+        // Tool results: block.content is a string or [{ type: "text", text }].
+        const resultTexts: string[] = [];
+        for (const b of blocks) {
+          if (b?.type !== "tool_result") continue;
+          if (typeof b.content === "string") {
+            resultTexts.push(b.content);
+          } else if (Array.isArray(b.content)) {
+            for (const inner of b.content as Array<Record<string, unknown>>) {
+              if (inner?.type === "text" && typeof inner.text === "string") {
+                resultTexts.push(inner.text);
+              }
+            }
+          }
+        }
+        if (resultTexts.length > 0) return resultTexts.join("\n");
       }
     }
+  }
+
+  // Malformed-line sentinel inserted by the bridge.
+  if (c._error === "json_parse_failed") {
+    return `(malformed transcript line: ${
+      typeof c._raw === "string" ? c._raw.slice(0, 120) : "?"
+    }…)`;
   }
 
   // Attachment: try the hookName / toolUseID surface
@@ -175,6 +214,10 @@ export default function SessionsZone({
           event: "INSERT",
           schema: "public",
           table: "session_messages",
+          // Conversation roles only — mirrors the server fetch in page.tsx.
+          // Bookkeeping events (meta/system/attachment) would otherwise
+          // dominate the stream and the 50-row buffer.
+          filter: "role=in.(user,assistant,malformed)",
         },
         (payload) => {
           const msg = payload.new as Message;
@@ -282,8 +325,11 @@ export default function SessionsZone({
                 ) : (
                   <ul className="space-y-1.5">
                     {sessionMessages.map((m) => {
-                      const tone =
-                        ROLE_TONE[m.role] ?? ROLE_TONE.meta;
+                      const displayRole =
+                        m.role === "user" && isToolResult(m.content)
+                          ? "tool"
+                          : m.role;
+                      const tone = ROLE_TONE[displayRole] ?? ROLE_TONE.meta;
                       const text = extractText(m.content) || "(no preview)";
                       return (
                         <li key={m.id} className="flex items-baseline gap-2">
@@ -293,7 +339,13 @@ export default function SessionsZone({
                           >
                             {tone.label}
                           </span>
-                          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-xs text-[#E8D6F4]">
+                          <span
+                            className={`min-w-0 flex-1 whitespace-pre-wrap break-words text-xs ${
+                              displayRole === "tool"
+                                ? "font-mono text-[#A878B0]"
+                                : "text-[#E8D6F4]"
+                            }`}
+                          >
                             {text.length > 600
                               ? text.slice(0, 600) + "…"
                               : text}

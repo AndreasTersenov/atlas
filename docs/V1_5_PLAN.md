@@ -283,3 +283,53 @@ After plan walk-through with Andreas:
 ## M. Status
 
 **Plan signed off 2026-05-23. Cutting `v1.5-claude-observatory` and starting with the migration so Andreas can verify the schema before any bridge code lands.**
+
+## N. Hardening pass (2026-06-10, Fable 5 session)
+
+Four fixes applied to the PR before the titan rollout, after auditing the
+implementation against real transcript data (~61MB / 14.4K lines on macbook,
+avg 4.2KB/line, 68% of volume in tool results):
+
+1. **Stat-polling on Linux** (`usePolling`, 3s interval, `ATLAS_POLL`
+   override). inotify doesn't see writes made by a different NFS/Lustre
+   client — a rorqual compute-node session is invisible to a login-node
+   bridge with native watching — and Lustre's inotify support is unreliable
+   even single-node. macOS keeps fsevents.
+2. **Offset tail reads.** The bridge was re-reading the whole transcript on
+   every change event — O(file²) on files that reach several MB while Claude
+   flushes multiple times per second, doubly bad over a network filesystem.
+   Now tracks a per-file byte offset, reads only the appended bytes, and
+   carries partial trailing lines as bytes until their newline arrives.
+   Per-file drains are serialized (in-flight + rerun flags) so overlapping
+   change events can't assign stale sequence numbers.
+3. **Mapped-only ingestion + string caps.** Unmapped sessions keep their
+   `claude_sessions` row (so the cockpit can say "unmapped session on titan")
+   but their transcript content is no longer ingested — 23 of 25 sessions in
+   the first smoke were unmapped noise burning the 500MB Supabase free tier.
+   `sanitizeForJsonb` now also caps any string at 4KB with an explicit
+   truncation marker; Atlas is a viewer, not an archive — the full transcript
+   stays on the source machine. Amends K1: content is still shape-raw, but
+   bounded.
+4. **Conversation-only rendering + honest liveness.** Server fetch and the
+   Realtime subscription filter to `role in (user, assistant, malformed)` so
+   the last-50 window holds meaningful events instead of bookkeeping noise;
+   tool results (user-type events carrying `tool_result` blocks) get their
+   own "tool" label instead of masquerading as "you". Session status is now
+   derived from file mtime, not bridge-start time, so a bridge restart no
+   longer lights up weeks-old transcripts as "active" for 5 minutes.
+
+5. **Stable machine identity.** The first smoke run of this pass caught
+   `os.hostname()` following DHCP/DNS: the same macbook registered as
+   `Andreass-MacBook-Pro.local` on 2026-06-07 and `mrgdhpc218.physics.uoc.gr`
+   on 2026-06-10, duplicating every session row (hostname is part of the
+   unique key). `mapping.json` now carries a required-in-practice `machine`
+   label ("macbook" / "titan" / "rorqual") that the bridge stores in
+   `claude_sessions.hostname`; os.hostname() remains only as a warned
+   fallback.
+
+Open question K2 (resume semantics) was settled empirically: across all 55
+transcripts on macbook there are zero resumed sessions (Andreas `/clear`s
+instead), and an 18-day session kept one UUID and one file across multiple
+compactions. Session = file = row holds in practice; `--resume` would mint a
+new file with copied history (duplicate rows under a new session) — accepted
+for v1.5, dedupe if it ever happens.

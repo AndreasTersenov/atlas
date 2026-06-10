@@ -1,6 +1,7 @@
 {
-  "_comment": "Copy this to ~/.atlas/mapping.json on each machine and edit. Patterns are picomatch-style: `**` matches recursively. First rule that matches wins.",
+  "_comment": "Copy this to ~/.atlas/mapping.json on each machine and edit. `machine` is the stable label shown in the cockpit (os.hostname() is NOT stable on laptops — it follows DHCP). Patterns are picomatch-style: `**` matches recursively. First rule that matches wins.",
   "owner_email": "andrewtersenov@gmail.com",
+  "machine": "macbook",
   "halos": [
     { "pattern": "/Users/atersenov/Software/atlas",     "halo_id": "personal-site" },
     { "pattern": "/Users/atersenov/Software/atlas/**",  "halo_id": "personal-site" },

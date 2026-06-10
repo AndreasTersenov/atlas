@@ -15,6 +15,14 @@ import { z } from "zod";
 export const MappingSchema = z
   .object({
     owner_email: z.string().email(),
+    // Stable machine label stored in claude_sessions.hostname. os.hostname()
+    // is NOT stable on a laptop — it follows DHCP/DNS (the same macbook
+    // reports "Andreass-MacBook-Pro.local" at home and
+    // "mrgdhpc218.physics.uoc.gr" on the university network), and a changed
+    // hostname re-registers every transcript as a new session. Set this to
+    // "macbook" / "titan" / "rorqual"; the bridge falls back to os.hostname()
+    // if absent.
+    machine: z.string().min(1).optional(),
     halos: z
       .array(
         z.object({

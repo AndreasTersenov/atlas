@@ -107,6 +107,12 @@ export default async function HaloPanel({
 
   // Fetch the last N messages per session, in parallel. N+1 queries but N
   // is capped at SESSIONS_PER_HALO_CAP — fine for v1.5.
+  //
+  // Role filter: most JSONL events are bookkeeping (file-history snapshots,
+  // permission modes, hook attachments) that render as noise. Fetching only
+  // conversation roles means the last-50 window is 50 *meaningful* events,
+  // not ~10 + 40 blanks. Keep in sync with the Realtime filter in
+  // sessions-zone.tsx.
   const sessionMessages: Record<string, SessionMessage[]> = {};
   if (sessions.length > 0) {
     const perSession = await Promise.all(
@@ -115,6 +121,7 @@ export default async function HaloPanel({
           .from("session_messages")
           .select("*")
           .eq("session_id", s.id)
+          .in("role", ["user", "assistant", "malformed"])
           .order("sequence", { ascending: false })
           .limit(MESSAGES_PER_SESSION_INITIAL)
           .then((res) => ({ id: s.id, res }))

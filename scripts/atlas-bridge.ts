@@ -12,12 +12,26 @@
 //   3. Watch ~/.claude/projects/ recursively. For each *.jsonl file:
 //      - On add:    detect the session's cwd (from the first line that
 //                   has one; falls back to the encoded dir name), upsert
-//                   a claude_sessions row.
-//      - On change: re-read the whole file (transcripts are bounded —
-//                   a few MB at most), slice off complete lines via the
-//                   "ends in \n" trick to avoid consuming a mid-write
-//                   partial line, parse + upsert any line we haven't
-//                   processed yet. Idempotent on (session, sequence).
+//                   a claude_sessions row. Sessions whose transcript
+//                   hasn't grown in >5min register as idle with
+//                   last_seen = file mtime, so a bridge restart doesn't
+//                   make weeks-old transcripts look live.
+//      - On change: read only the bytes appended since the last read
+//                   (tracked per-file offset; partial trailing lines are
+//                   carried as bytes until their newline arrives — \n is
+//                   a single byte in UTF-8, so splitting at the buffer
+//                   level can't corrupt multibyte chars). Parse + upsert
+//                   any complete line. Idempotent on (session, sequence).
+//                   Transcripts grow to many MB and Claude Code flushes
+//                   several times a second — re-reading from byte 0 per
+//                   event would be O(file²), which matters double on the
+//                   HPCs where $HOME is a network filesystem.
+//      - Unmapped sessions (cwd matches no mapping rule) get a
+//        claude_sessions row — so the cockpit can say "unmapped session
+//        on titan, update your mapping" — but their transcript content
+//        is NOT ingested. Mapped halos are what the observatory renders;
+//        unmapped content would only burn Supabase storage (500MB free
+//        tier) and widen the privacy surface for zero render value.
 //   4. Every 30s, heartbeat last_seen for sessions that have seen
 //      activity in the last heartbeat window.
 //   5. Every 60s, sweep for sessions with last_seen older than 5 min and
@@ -42,8 +56,8 @@ loadEnv({ path: ".env.local" });
 loadEnv(); // back-fill from .env without overriding existing keys
 
 import chokidar from "chokidar";
-import { readFile } from "node:fs/promises";
-import { homedir, hostname } from "node:os";
+import { open, stat } from "node:fs/promises";
+import { homedir, hostname, platform } from "node:os";
 import { basename, resolve, dirname } from "node:path";
 
 import { createAdminClient } from "../lib/supabase-admin";
@@ -72,6 +86,17 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const IDLE_SWEEP_INTERVAL_MS = 60_000;
 const IDLE_AFTER_MS = 5 * 60_000;
 
+// inotify doesn't see writes made by a *different* NFS/Lustre client (e.g.
+// a rorqual compute-node session vs a login-node bridge), and Lustre's
+// inotify support is unreliable even single-node — so on Linux we default
+// to stat-polling. macOS (local APFS + fsevents) keeps native watching.
+// Override either way with ATLAS_POLL=1 / ATLAS_POLL=0.
+const USE_POLLING =
+  process.env.ATLAS_POLL !== undefined
+    ? process.env.ATLAS_POLL === "1"
+    : platform() === "linux";
+const POLL_INTERVAL_MS = 3_000;
+
 // ─── types ────────────────────────────────────────────────────────────────
 
 interface SessionState {
@@ -81,7 +106,11 @@ interface SessionState {
   cwd: string;
   haloId: string | null;
   lastSequence: number; // count of file lines we've processed
-  lastTouched: number; // Date.now() of the last heartbeat
+  lastTouched: number; // mtime (ms) of the file at the last successful batch
+  byteOffset: number; // how far into the file we've consumed
+  partial: Buffer; // trailing bytes of an incomplete line, waiting for \n
+  inFlight: boolean; // a drain is currently running for this file
+  rerun: boolean; // a change event arrived mid-drain; drain again after
 }
 
 type SessionMessageInsert =
@@ -89,7 +118,11 @@ type SessionMessageInsert =
 
 // ─── globals ──────────────────────────────────────────────────────────────
 
-const HOSTNAME = hostname();
+// Stable machine label for claude_sessions.hostname. Set from
+// mapping.machine in main(); the os.hostname() fallback is unstable on a
+// laptop (it follows DHCP/DNS), which would re-register every transcript as
+// a new session whenever the network changes.
+let MACHINE = hostname();
 const sessions = new Map<string, SessionState>(); // keyed by absolute filePath
 
 // ─── helpers ──────────────────────────────────────────────────────────────
@@ -108,14 +141,21 @@ function decodeProjectDirName(dirName: string): string {
 }
 
 async function detectCwd(filePath: string): Promise<string> {
+  // `cwd` shows up on every user/assistant event, which appears within the
+  // first few entries — the first 64KB is plenty. Bounded read so a multi-MB
+  // transcript doesn't get pulled into memory just to find one field.
   try {
-    const text = await readFile(filePath, "utf-8");
-    const lines = text.split("\n");
-    // First ~50 lines is plenty — `cwd` shows up on every user/assistant
-    // event, which appears within the first few entries.
-    for (let i = 0; i < Math.min(50, lines.length); i++) {
-      const parsed = parseLine(lines[i]);
-      if (parsed?.cwd) return parsed.cwd;
+    const handle = await open(filePath, "r");
+    try {
+      const buf = Buffer.alloc(65_536);
+      const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+      const lines = buf.subarray(0, bytesRead).toString("utf-8").split("\n");
+      for (const line of lines) {
+        const parsed = parseLine(line);
+        if (parsed?.cwd) return parsed.cwd;
+      }
+    } finally {
+      await handle.close();
     }
   } catch (err) {
     log(`detectCwd: read failed for ${filePath}:`, err);
@@ -153,6 +193,22 @@ async function upsertSessionRow(
   const cwd = await detectCwd(filePath);
   const haloId = resolveHalo(cwd, mapping);
 
+  // Status from the file's own clock, not the bridge's: a bridge (re)start
+  // sweeps up every transcript on disk, and weeks-old sessions must not
+  // light up as "active" in the cockpit for the next 5 minutes.
+  let mtimeMs = Date.now();
+  let birthtimeMs = mtimeMs;
+  try {
+    const st = await stat(filePath);
+    mtimeMs = st.mtimeMs;
+    birthtimeMs = st.birthtimeMs || st.mtimeMs;
+  } catch (err) {
+    log(`stat failed for ${filePath}:`, err);
+  }
+  const isFresh = Date.now() - mtimeMs < IDLE_AFTER_MS;
+  const observedStatus = isFresh ? "active" : "idle";
+  const observedLastSeen = new Date(mtimeMs).toISOString();
+
   // Insert if new; fetch existing if already there. We split rather than
   // .upsert() so a re-add of an existing session doesn't overwrite
   // started_at with the current timestamp.
@@ -160,7 +216,7 @@ async function upsertSessionRow(
     .from("claude_sessions")
     .select("id")
     .eq("owner_id", ownerId)
-    .eq("hostname", HOSTNAME)
+    .eq("hostname", MACHINE)
     .eq("claude_session_id", claudeSessionId)
     .maybeSingle();
   if (selectError) {
@@ -170,27 +226,33 @@ async function upsertSessionRow(
 
   let rowId: string;
   if (existing) {
-    // Re-seeing a known session (bridge restart). Flip back to active +
-    // heartbeat; preserve started_at, cwd, halo_id.
+    // Re-seeing a known session (bridge restart). Refresh status/last_seen
+    // from the file mtime; preserve started_at, cwd, halo_id. (Don't touch
+    // status for stale files — a session the previous run marked `ended`
+    // shouldn't resurrect as `idle` just because the file is still on disk.)
     rowId = existing.id;
-    const { error: updateError } = await client
-      .from("claude_sessions")
-      .update({ status: "active", last_seen: new Date().toISOString() })
-      .eq("id", rowId);
-    if (updateError) {
-      log(`update on resume failed for ${filePath}:`, updateError);
-      return null;
+    if (isFresh) {
+      const { error: updateError } = await client
+        .from("claude_sessions")
+        .update({ status: "active", last_seen: observedLastSeen })
+        .eq("id", rowId);
+      if (updateError) {
+        log(`update on resume failed for ${filePath}:`, updateError);
+        return null;
+      }
     }
   } else {
     const { data: inserted, error: insertError } = await client
       .from("claude_sessions")
       .insert({
         owner_id: ownerId,
-        hostname: HOSTNAME,
+        hostname: MACHINE,
         claude_session_id: claudeSessionId,
         cwd,
         halo_id: haloId,
-        status: "active",
+        status: observedStatus,
+        started_at: new Date(birthtimeMs).toISOString(),
+        last_seen: observedLastSeen,
       })
       .select("id")
       .single();
@@ -209,7 +271,11 @@ async function upsertSessionRow(
     cwd,
     haloId,
     lastSequence: 0,
-    lastTouched: Date.now(),
+    lastTouched: mtimeMs,
+    byteOffset: 0,
+    partial: Buffer.alloc(0),
+    inFlight: false,
+    rerun: false,
   };
 }
 
@@ -218,53 +284,111 @@ async function processNewLines(
   ownerId: string,
   state: SessionState
 ) {
-  let text: string;
+  // Serialize per file. Two overlapping runs would read the same byte range
+  // with a stale sequence base and assign wrong sequence numbers; the
+  // rerun flag makes sure an event that arrived mid-run isn't dropped.
+  if (state.inFlight) {
+    state.rerun = true;
+    return;
+  }
+  state.inFlight = true;
   try {
-    text = await readFile(state.filePath, "utf-8");
+    do {
+      state.rerun = false;
+      await drainOnce(client, ownerId, state);
+    } while (state.rerun);
+  } finally {
+    state.inFlight = false;
+  }
+}
+
+async function drainOnce(
+  client: ReturnType<typeof createAdminClient>,
+  ownerId: string,
+  state: SessionState
+) {
+  // Read only the bytes appended since the last successful batch.
+  let chunk: Buffer;
+  let mtimeMs: number;
+  try {
+    const handle = await open(state.filePath, "r");
+    try {
+      const st = await handle.stat();
+      mtimeMs = st.mtimeMs;
+      if (st.size < state.byteOffset) {
+        // Truncation/rewrite — Claude Code isn't known to do this, but if it
+        // happens, restart from byte 0. (session, sequence) upserts keep the
+        // re-read idempotent.
+        log(`file shrank, re-reading from byte 0: ${state.filePath}`);
+        state.byteOffset = 0;
+        state.partial = Buffer.alloc(0);
+        state.lastSequence = 0;
+      }
+      if (st.size === state.byteOffset) return;
+      const toRead = st.size - state.byteOffset;
+      const buf = Buffer.alloc(toRead);
+      const { bytesRead } = await handle.read(buf, 0, toRead, state.byteOffset);
+      chunk = buf.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
   } catch (err) {
     log(`read failed for ${state.filePath}:`, err);
     return;
   }
 
-  // Split, then drop the trailing element. If the file ends in \n the
-  // trailing element is '' (split artifact). If not, it's a partial line
-  // mid-write and we must not consume it; the next change event will
-  // re-read with the line complete.
-  const split = text.split("\n");
-  const completeLines = split.slice(0, -1);
+  // Split at the last newline. \n is a single byte in UTF-8 (never part of a
+  // multibyte sequence), so splitting at the buffer level can't corrupt
+  // multibyte chars; the tail past the last newline is a mid-write partial
+  // line, carried as bytes until it completes.
+  const combined = Buffer.concat([state.partial, chunk]);
+  const lastNewline = combined.lastIndexOf(0x0a);
+  if (lastNewline === -1) {
+    state.partial = Buffer.from(combined);
+    state.byteOffset += chunk.length;
+    return;
+  }
+  const completeLines = combined
+    .subarray(0, lastNewline)
+    .toString("utf-8")
+    .split("\n");
 
-  if (state.lastSequence >= completeLines.length) return;
-
+  // Unmapped sessions: track liveness (the session row + heartbeats below)
+  // but don't ingest transcript content. If a mapping rule is added later, a
+  // bridge restart re-reads from byte 0 and backfills.
   const rowsToInsert: SessionMessageInsert[] = [];
-  for (let seq = state.lastSequence; seq < completeLines.length; seq++) {
-    const lineText = completeLines[seq];
-    if (!lineText.trim()) continue;
-    const parsed: TranscriptLine | null = parseLine(lineText);
-    if (!parsed) {
-      // Insert a sentinel row instead of skipping silently. Advancing
-      // lastSequence past this index would have permanently dropped the
-      // event from the feed; the sentinel preserves the gap so the cockpit
-      // can render "1 malformed event" rather than just lying.
-      log(`malformed line at ${state.claudeSessionId}:${seq}`);
+  if (state.haloId !== null) {
+    for (let i = 0; i < completeLines.length; i++) {
+      const seq = state.lastSequence + i;
+      const lineText = completeLines[i];
+      if (!lineText.trim()) continue;
+      const parsed: TranscriptLine | null = parseLine(lineText);
+      if (!parsed) {
+        // Insert a sentinel row instead of skipping silently. Advancing
+        // lastSequence past this index would have permanently dropped the
+        // event from the feed; the sentinel preserves the gap so the cockpit
+        // can render "1 malformed event" rather than just lying.
+        log(`malformed line at ${state.claudeSessionId}:${seq}`);
+        rowsToInsert.push({
+          owner_id: ownerId,
+          session_id: state.rowId,
+          sequence: seq,
+          role: "malformed",
+          content: {
+            _error: "json_parse_failed",
+            _raw: lineText.slice(0, 500),
+          } as unknown as Json,
+        });
+        continue;
+      }
       rowsToInsert.push({
         owner_id: ownerId,
         session_id: state.rowId,
         sequence: seq,
-        role: "malformed",
-        content: {
-          _error: "json_parse_failed",
-          _raw: lineText.slice(0, 500),
-        } as unknown as Json,
+        role: normalizeRole(parsed),
+        content: sanitizeForJsonb(parsed) as unknown as Json,
       });
-      continue;
     }
-    rowsToInsert.push({
-      owner_id: ownerId,
-      session_id: state.rowId,
-      sequence: seq,
-      role: normalizeRole(parsed),
-      content: sanitizeForJsonb(parsed) as unknown as Json,
-    });
   }
 
   if (rowsToInsert.length > 0) {
@@ -273,18 +397,27 @@ async function processNewLines(
       .upsert(rowsToInsert, { onConflict: "session_id,sequence" });
     if (error) {
       log(`upsert session_messages failed for ${state.filePath}:`, error);
-      // Don't advance — let the next change event retry.
+      // Don't advance any state — the next change event re-reads the same
+      // byte range and retries.
       return;
     }
   }
 
-  state.lastSequence = completeLines.length;
+  // Commit the batch only after the upsert landed.
+  state.byteOffset += chunk.length;
+  state.partial = Buffer.from(combined.subarray(lastNewline + 1));
+  state.lastSequence += completeLines.length;
 
-  // Heartbeat last_seen on every batch with new content. The 30s timer
-  // below handles sessions that have written nothing but are still "open".
+  // Heartbeat from the file's clock, not the wall clock: last_seen means
+  // "the transcript last grew at this time", which also keeps the startup
+  // catch-up over old transcripts from making them look freshly active.
+  const isFresh = Date.now() - mtimeMs < IDLE_AFTER_MS;
   const { error: heartbeatError } = await client
     .from("claude_sessions")
-    .update({ last_seen: new Date().toISOString(), status: "active" })
+    .update({
+      last_seen: new Date(mtimeMs).toISOString(),
+      ...(isFresh ? { status: "active" as const } : {}),
+    })
     .eq("id", state.rowId);
   if (heartbeatError) {
     // Don't advance lastTouched — keep the next heartbeat timer eligible to
@@ -293,7 +426,7 @@ async function processNewLines(
     log(`heartbeat update failed for ${state.claudeSessionId}:`, heartbeatError);
     return;
   }
-  state.lastTouched = Date.now();
+  state.lastTouched = mtimeMs;
 }
 
 async function markEnded(
@@ -332,7 +465,7 @@ async function sweepIdleSessions(
     .from("claude_sessions")
     .update({ status: "idle" })
     .eq("owner_id", ownerId)
-    .eq("hostname", HOSTNAME)
+    .eq("hostname", MACHINE)
     .eq("status", "active")
     .lt("last_seen", cutoff);
 }
@@ -351,10 +484,20 @@ async function main() {
   const mapping = loadMapping(MAPPING_PATH);
   log(`loaded mapping (${mapping.halos.length} rules) from ${MAPPING_PATH}`);
 
+  if (mapping.machine) {
+    MACHINE = mapping.machine;
+  } else {
+    log(
+      `WARNING: no "machine" in ${MAPPING_PATH} — falling back to ` +
+        `os.hostname() ("${MACHINE}"), which changes with the network on ` +
+        `laptops and would re-register sessions under a new machine name.`
+    );
+  }
+
   const client = createAdminClient(url, serviceKey);
   const ownerId = await resolveOwnerId(client, mapping.owner_email);
   log(`owner resolved: ${mapping.owner_email} → ${ownerId}`);
-  log(`hostname: ${HOSTNAME}`);
+  log(`machine: ${MACHINE}`);
   log(`watching: ${PROJECTS_DIR}`);
 
   const watcher = chokidar.watch(PROJECTS_DIR, {
@@ -362,7 +505,17 @@ async function main() {
     ignoreInitial: false, // pick up files that already exist at startup
     depth: 2, // ~/.claude/projects/<encoded-cwd>/<session>.jsonl
     awaitWriteFinish: false,
+    usePolling: USE_POLLING,
+    interval: POLL_INTERVAL_MS,
+    binaryInterval: POLL_INTERVAL_MS,
   });
+  log(
+    USE_POLLING
+      ? `watch mode: stat-polling every ${POLL_INTERVAL_MS / 1000}s ` +
+          `(inotify can't see writes from other NFS/Lustre clients; ` +
+          `override with ATLAS_POLL=0)`
+      : "watch mode: native fs events (override with ATLAS_POLL=1)"
+  );
 
   watcher.on("add", async (filePath: string) => {
     if (!filePath.endsWith(".jsonl")) return;

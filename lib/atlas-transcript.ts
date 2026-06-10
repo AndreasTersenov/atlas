@@ -91,9 +91,23 @@ export function normalizeRole(line: TranscriptLine): NormalizedRole {
 const NUL_CHAR = String.fromCharCode(0);
 const NUL_RE = new RegExp(NUL_CHAR, "g");
 
+// The same walk caps string length. Tool results dominate transcript volume
+// (~68% measured on real transcripts, avg 4.2KB/line) and Atlas is a viewer,
+// not an archive — the full transcript stays on the source machine. The
+// cockpit's preview truncates at 600 chars anyway, so 4KB keeps everything
+// the UI can show while bounding Supabase row size. The marker makes the cut
+// explicit so a future reader of the row knows it isn't the full text.
+export const MAX_STRING_LENGTH = 4096;
+
 export function sanitizeForJsonb(value: unknown): unknown {
   if (typeof value === "string") {
-    return value.includes(NUL_CHAR) ? value.replace(NUL_RE, "") : value;
+    let s = value.includes(NUL_CHAR) ? value.replace(NUL_RE, "") : value;
+    if (s.length > MAX_STRING_LENGTH) {
+      s =
+        s.slice(0, MAX_STRING_LENGTH) +
+        `… [atlas: truncated, ${s.length} chars in source transcript]`;
+    }
+    return s;
   }
   if (Array.isArray(value)) return value.map(sanitizeForJsonb);
   if (value !== null && typeof value === "object") {
