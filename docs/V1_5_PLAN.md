@@ -327,6 +327,18 @@ avg 4.2KB/line, 68% of volume in tool results):
    `claude_sessions.hostname`; os.hostname() remains only as a warned
    fallback.
 
+6. **Bounded tail backfill + byte-offset sequence keys.** The titan rollout
+   surfaced the scale problem immediately: 1.5GB of transcripts across
+   1000+ sessions (one autoresearch worktree project alone was 1.2GB), and
+   whole-transcript single-batch upserts died with PostgREST "upstream
+   request timeout". The bridge now ingests at most the last 512KB of a
+   transcript at first sighting, skips files idle for >7 days entirely
+   (session row only), and keys `session_messages.sequence` by the byte
+   offset of each line's start instead of its line index — stable and
+   idempotent without ever reading a file's prefix. Existing message rows
+   under the old line-index keying were wiped (all were same-day smoke
+   artifacts; bridges re-backfill tails automatically).
+
 Open question K2 (resume semantics) was settled empirically: across all 55
 transcripts on macbook there are zero resumed sessions (Andreas `/clear`s
 instead), and an 18-day session kept one UUID and one file across multiple

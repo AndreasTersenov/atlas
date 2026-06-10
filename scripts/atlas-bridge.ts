@@ -39,9 +39,10 @@
 //   6. On clean exit (SIGINT/SIGTERM), best-effort mark currently-active
 //      sessions as idle so the cockpit doesn't show them as fake-live.
 //
-// State is in-memory only. If the bridge restarts, it re-reads each
-// transcript from byte 0 — every (session_id, sequence) upsert is a
-// no-op so this is safe.
+// State is in-memory only. On restart the bridge re-ingests at most the
+// last MAX_BACKFILL_BYTES of each transcript (sequence keys are byte
+// offsets, so the re-ingested tail upserts onto the same rows). Atlas is a
+// viewer, not an archive — full history stays on the source machine.
 //
 // Auth: uses SUPABASE_SERVICE_ROLE_KEY from .env.local. Writes rows with
 // owner_id set explicitly. Single-user system; revisit when adding
@@ -97,6 +98,19 @@ const USE_POLLING =
     : platform() === "linux";
 const POLL_INTERVAL_MS = 3_000;
 
+// Backfill caps. Atlas is a viewer, not an archive: when the bridge first
+// sights a transcript it ingests at most the last MAX_BACKFILL_BYTES of it
+// (the cockpit renders the last ~50 conversation events; the full history
+// stays on the source machine), and skips files that haven't grown in
+// BACKFILL_MAX_AGE_MS entirely — they still get a claude_sessions row, and
+// if one ever grows again its new lines flow in normally. Sized against
+// reality: titan held 1.5GB of transcripts across 1000+ sessions on first
+// rollout; unbounded backfill both drowned the Supabase free tier and blew
+// past PostgREST request limits ("upstream request timeout" on multi-MB
+// single-transcript batches).
+const MAX_BACKFILL_BYTES = 512 * 1024;
+const BACKFILL_MAX_AGE_MS = 7 * 24 * 3_600_000;
+
 // ─── types ────────────────────────────────────────────────────────────────
 
 interface SessionState {
@@ -105,9 +119,10 @@ interface SessionState {
   claudeSessionId: string; // the UUID Claude Code uses in the filename
   cwd: string;
   haloId: string | null;
-  lastSequence: number; // count of file lines we've processed
   lastTouched: number; // mtime (ms) of the file at the last successful batch
   byteOffset: number; // how far into the file we've consumed
+  nextLineOffset: number; // byte offset where the next line starts = its sequence key
+  dropUntilNewline: boolean; // backfill started mid-line; discard up to first \n
   partial: Buffer; // trailing bytes of an incomplete line, waiting for \n
   inFlight: boolean; // a drain is currently running for this file
   rerun: boolean; // a change event arrived mid-drain; drain again after
@@ -198,10 +213,12 @@ async function upsertSessionRow(
   // light up as "active" in the cockpit for the next 5 minutes.
   let mtimeMs = Date.now();
   let birthtimeMs = mtimeMs;
+  let sizeBytes = 0;
   try {
     const st = await stat(filePath);
     mtimeMs = st.mtimeMs;
     birthtimeMs = st.birthtimeMs || st.mtimeMs;
+    sizeBytes = st.size;
   } catch (err) {
     log(`stat failed for ${filePath}:`, err);
   }
@@ -264,15 +281,31 @@ async function upsertSessionRow(
     log(`new session: ${claudeSessionId} → halo=${haloId ?? "(unmapped)"} cwd=${cwd}`);
   }
 
+  // Backfill window: where in the file ingestion starts.
+  //   stale file (no growth in BACKFILL_MAX_AGE_MS) → skip all existing
+  //     content; only future appends flow.
+  //   large file → start MAX_BACKFILL_BYTES from the end; the first
+  //     (almost certainly partial) line in the window is discarded.
+  //   small fresh file → start at byte 0.
+  let startOffset = 0;
+  let dropUntilNewline = false;
+  if (Date.now() - mtimeMs > BACKFILL_MAX_AGE_MS) {
+    startOffset = sizeBytes;
+  } else if (sizeBytes > MAX_BACKFILL_BYTES) {
+    startOffset = sizeBytes - MAX_BACKFILL_BYTES;
+    dropUntilNewline = true;
+  }
+
   return {
     filePath,
     rowId,
     claudeSessionId,
     cwd,
     haloId,
-    lastSequence: 0,
     lastTouched: mtimeMs,
-    byteOffset: 0,
+    byteOffset: startOffset,
+    nextLineOffset: startOffset,
+    dropUntilNewline,
     partial: Buffer.alloc(0),
     inFlight: false,
     rerun: false,
@@ -321,8 +354,9 @@ async function drainOnce(
         // re-read idempotent.
         log(`file shrank, re-reading from byte 0: ${state.filePath}`);
         state.byteOffset = 0;
+        state.nextLineOffset = 0;
+        state.dropUntilNewline = false;
         state.partial = Buffer.alloc(0);
-        state.lastSequence = 0;
       }
       if (st.size === state.byteOffset) return;
       const toRead = st.size - state.byteOffset;
@@ -335,6 +369,24 @@ async function drainOnce(
   } catch (err) {
     log(`read failed for ${state.filePath}:`, err);
     return;
+  }
+
+  // Backfill that started mid-file lands mid-line: discard bytes up to and
+  // including the first newline so ingestion begins at a real line boundary.
+  // (state.partial is empty while this flag is set; these bytes never reach
+  // the DB, so advancing state here doesn't break retry semantics.)
+  if (state.dropUntilNewline) {
+    const firstNewline = chunk.indexOf(0x0a);
+    if (firstNewline === -1) {
+      state.byteOffset += chunk.length;
+      state.nextLineOffset = state.byteOffset;
+      return;
+    }
+    state.byteOffset += firstNewline + 1;
+    state.nextLineOffset = state.byteOffset;
+    state.dropUntilNewline = false;
+    chunk = chunk.subarray(firstNewline + 1);
+    if (chunk.length === 0) return;
   }
 
   // Split at the last newline. \n is a single byte in UTF-8 (never part of a
@@ -353,42 +405,47 @@ async function drainOnce(
     .toString("utf-8")
     .split("\n");
 
+  // Sequence keys are the byte offsets of each line's start in the file:
+  // stable across restarts without ever reading the file's prefix (which is
+  // what makes the bounded backfill possible), and monotonic so the
+  // cockpit's ORDER BY sequence stays chronological. int4 caps this at a
+  // 2GB transcript; the largest seen so far is tens of MB.
+  //
   // Unmapped sessions: track liveness (the session row + heartbeats below)
   // but don't ingest transcript content. If a mapping rule is added later, a
-  // bridge restart re-reads from byte 0 and backfills.
+  // bridge restart backfills the tail.
   const rowsToInsert: SessionMessageInsert[] = [];
-  if (state.haloId !== null) {
-    for (let i = 0; i < completeLines.length; i++) {
-      const seq = state.lastSequence + i;
-      const lineText = completeLines[i];
-      if (!lineText.trim()) continue;
-      const parsed: TranscriptLine | null = parseLine(lineText);
-      if (!parsed) {
-        // Insert a sentinel row instead of skipping silently. Advancing
-        // lastSequence past this index would have permanently dropped the
-        // event from the feed; the sentinel preserves the gap so the cockpit
-        // can render "1 malformed event" rather than just lying.
-        log(`malformed line at ${state.claudeSessionId}:${seq}`);
-        rowsToInsert.push({
-          owner_id: ownerId,
-          session_id: state.rowId,
-          sequence: seq,
-          role: "malformed",
-          content: {
-            _error: "json_parse_failed",
-            _raw: lineText.slice(0, 500),
-          } as unknown as Json,
-        });
-        continue;
-      }
+  let lineOffset = state.nextLineOffset;
+  for (const lineText of completeLines) {
+    const seq = lineOffset;
+    lineOffset += Buffer.byteLength(lineText, "utf-8") + 1;
+    if (!lineText.trim()) continue;
+    if (state.haloId === null) continue;
+    const parsed: TranscriptLine | null = parseLine(lineText);
+    if (!parsed) {
+      // Insert a sentinel row instead of skipping silently — the sentinel
+      // preserves the gap so the cockpit can render "1 malformed event"
+      // rather than just lying.
+      log(`malformed line at ${state.claudeSessionId}:${seq}`);
       rowsToInsert.push({
         owner_id: ownerId,
         session_id: state.rowId,
         sequence: seq,
-        role: normalizeRole(parsed),
-        content: sanitizeForJsonb(parsed) as unknown as Json,
+        role: "malformed",
+        content: {
+          _error: "json_parse_failed",
+          _raw: lineText.slice(0, 500),
+        } as unknown as Json,
       });
+      continue;
     }
+    rowsToInsert.push({
+      owner_id: ownerId,
+      session_id: state.rowId,
+      sequence: seq,
+      role: normalizeRole(parsed),
+      content: sanitizeForJsonb(parsed) as unknown as Json,
+    });
   }
 
   if (rowsToInsert.length > 0) {
@@ -406,7 +463,7 @@ async function drainOnce(
   // Commit the batch only after the upsert landed.
   state.byteOffset += chunk.length;
   state.partial = Buffer.from(combined.subarray(lastNewline + 1));
-  state.lastSequence += completeLines.length;
+  state.nextLineOffset = lineOffset;
 
   // Heartbeat from the file's clock, not the wall clock: last_seen means
   // "the transcript last grew at this time", which also keeps the startup
