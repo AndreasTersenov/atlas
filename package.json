@@ -13,7 +13,11 @@
     "db:push": "npx supabase db push",
     "db:seed": "tsx scripts/seed.ts",
     "db:types": "npx supabase gen types typescript --linked > lib/database.types.ts",
-    "bridge": "tsx scripts/atlas-bridge.ts"
+    "bridge": "tsx scripts/atlas-bridge.ts",
+    "setup": "playwright install chromium",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
@@ -29,6 +33,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/picomatch": "^4.0.3",
