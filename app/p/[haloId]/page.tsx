@@ -25,27 +25,43 @@ interface PageProps {
   params: Promise<{ haloId: string }>;
 }
 
-export default async function HaloPage({ params }: PageProps) {
-  const { haloId } = await params;
-
-  // Dynamic import resolved at build time per halo. Webpack/Turbopack
-  // create a context module covering content/halos/*.mdx; the bundler
-  // emits one chunk per matched file.
+/**
+ * Loads + validates the MDX module for a given haloId. Used by both
+ * generateMetadata and the page body so they can't drift.
+ *
+ * Dynamic import constraint (don't refactor without reading): the
+ * variable portion of the template literal must remain a bare identifier.
+ * Webpack and Turbopack statically analyse this expression at build time
+ * to enumerate all matching files (`content/halos/*.mdx`) and form a
+ * context module. Wrapping `haloId` in a function call or conditional
+ * breaks the static analysis and either oversizes the chunk or fails the
+ * build with a `Module not found` error.
+ */
+async function loadHaloModule(haloId: string): Promise<{
+  Body: React.ComponentType;
+  fm: ReturnType<typeof HaloFrontmatter.parse>;
+} | null> {
   let mod: { default: React.ComponentType; frontmatter: unknown };
   try {
     mod = await import(`@/content/halos/${haloId}.mdx`);
   } catch {
-    notFound();
+    return null;
   }
 
-  const fm = HaloFrontmatter.parse(mod.frontmatter);
+  // safeParse so the failing halo is named in the build output instead of
+  // a raw ZodError with no attribution.
+  const fmResult = HaloFrontmatter.safeParse(mod.frontmatter);
+  if (!fmResult.success) {
+    throw new Error(
+      `[/p/${haloId}] frontmatter failed zod validation:\n${fmResult.error.message}`
+    );
+  }
+  const fm = fmResult.data;
 
   // Coherence between filename and frontmatter halo_id. Without this,
   // a copy-pasted MDX where the file was renamed but the frontmatter
   // wasn't would silently render the wrong title/links under the new
-  // URL. This runs at build time per generated path (output:'export'
-  // pre-renders every params combination), so any mismatch is a
-  // build failure with the offending halo named.
+  // URL. Caught at build time per generated path.
   if (fm.halo_id !== haloId) {
     throw new Error(
       `[/p/${haloId}] frontmatter halo_id is "${fm.halo_id}" but the MDX ` +
@@ -54,7 +70,26 @@ export default async function HaloPage({ params }: PageProps) {
     );
   }
 
-  const Body = mod.default;
+  return { Body: mod.default, fm };
+}
+
+export async function generateMetadata({ params }: PageProps) {
+  const { haloId } = await params;
+  const loaded = await loadHaloModule(haloId);
+  if (!loaded) return {};
+  return {
+    title: loaded.fm.title,
+    description: loaded.fm.tagline,
+  };
+}
+
+export default async function HaloPage({ params }: PageProps) {
+  const { haloId } = await params;
+  const loaded = await loadHaloModule(haloId);
+  if (!loaded) notFound();
+  // notFound() returns `never`, so TS narrows `loaded` to non-null here —
+  // no `!` assertion needed.
+  const { Body, fm } = loaded;
 
   return (
     <main className="min-h-dvh bg-[#0A0214] text-[#E8D6F4]">

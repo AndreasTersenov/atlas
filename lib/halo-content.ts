@@ -18,8 +18,10 @@
 //     the case where the filename and frontmatter disagree (e.g. a
 //     copy-pasted file that wasn't fully renamed).
 //
-// Halos in data/halos.json without an MDX file are tolerated; their
-// /p/<id> route 404s deliberately until written.
+// Halos in data/halos.json without an MDX file are tolerated: the
+// /p/<id> route 404s because `generateStaticParams` only emits ids
+// that have an MDX file, and `dynamicParams = false` in the page
+// component drops anything not in that list.
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -60,16 +62,22 @@ export type HaloFrontmatter = z.infer<typeof HaloFrontmatter>;
 
 const CONTENT_DIR = path.join(process.cwd(), "content", "halos");
 
-const halosJsonIds = new Set<string>(
-  (halosJson as ReadonlyArray<{ id: string }>).map((h) => h.id)
-);
-
 /**
  * Lists halo ids that have an MDX file under content/halos/. Throws if
  * any of them isn't present in data/halos.json — that's the
  * content-authority drift case the plan calls a build-time failure.
+ *
+ * The Set of valid ids is constructed *inside* the function so the
+ * function reads `halos.json` afresh on each call. A module-level Set
+ * would freeze at module-load time, which is correct for production
+ * `next build` (fresh process) but a latent stale-read bug for any
+ * future test harness that mutates `halos.json` between calls.
  */
 export async function listMdxHaloIds(): Promise<string[]> {
+  const halosJsonIds = new Set<string>(
+    (halosJson as ReadonlyArray<{ id: string }>).map((h) => h.id)
+  );
+
   let entries: string[];
   try {
     entries = await fs.readdir(CONTENT_DIR);
