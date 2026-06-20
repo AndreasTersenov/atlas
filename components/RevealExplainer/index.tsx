@@ -94,6 +94,22 @@ export interface RevealExplainerProps {
   children?: ReactNode;
   /** Optional className for the outer layout container (test page uses this). */
   className?: string;
+  /**
+   * Extra classes appended to the <section> the explainer paints into.
+   * The real `bnt_explainer.css` scopes all its rules under `.bnt-slide`,
+   * so mounting `module="bnt_explainer"` requires `sectionClassName="bnt-slide"`.
+   * Smoke fixture leaves this unset.
+   */
+  sectionClassName?: string;
+  /**
+   * DOM the engine expects to find inside the section. Most engines query
+   * for specific elements at construction time (bnt_explainer's cloud
+   * Engine queries .bnt-cloud canvas, .bnt-meter, .bnt-caption, etc.).
+   * The caller renders that scaffolding here; the wrapper appends the
+   * fragment markers after it. Leave undefined for engines that build
+   * their own DOM from scratch.
+   */
+  sectionContent?: ReactNode;
 }
 
 type LoadStatus = "loading" | "ready" | "failed";
@@ -105,6 +121,8 @@ export default function RevealExplainer({
   acts,
   children,
   className,
+  sectionClassName,
+  sectionContent,
 }: RevealExplainerProps) {
   const sectionRef = useRef<HTMLElement | null>(null);
   const proseRef = useRef<HTMLDivElement | null>(null);
@@ -417,19 +435,9 @@ export default function RevealExplainer({
           ref={sectionRef}
           data-bnt-explainer="true"
           data-bnt-kind={kind}
-          className="reveal-explainer-section"
+          className={`reveal-explainer-section ${sectionClassName ?? ""}`.trim()}
         >
-          {/*
-            data-role="smoke-act" is fixture-specific markup the
-            `_smoke.js` test fixture writes into. Real explainers
-            (bnt_explainer.js et al) inject their own <canvas> + DOM and
-            don't touch this span — it's visually inert but reads as
-            unexplained DOM in DevTools on a real halo page. Remove this
-            element when G.1.c.3 replaces the smoke fixture with the
-            real bnt_explainer section content. Tracked in
-            docs/G1c2_PR_REVIEW.md §1.2 (S1).
-          */}
-          <span data-role="smoke-act">1</span>
+          {sectionContent}
           {fragmentMarkers}
         </section>
 
