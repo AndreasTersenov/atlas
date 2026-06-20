@@ -46,7 +46,7 @@ export default defineConfig({
     // GH Pages — the green check now means the production runtime works.
     // Locally, reuse a running server so iterative test runs don't rebuild
     // every time; on CI always cold-start so we test the actual build.
-    command: "npm run build && npx serve out -l 3000 --no-port-switching --no-clipboard",
+    command: `npm run build && npx serve out -l ${PORT} --no-port-switching --no-clipboard`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     // Next build can take ~30s on a cold CI cache; allow generous headroom.
