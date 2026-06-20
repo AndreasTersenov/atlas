@@ -149,6 +149,25 @@ export default function RevealExplainer({
     statusRef.current = status;
   }, [status]);
 
+  // Dev-time guard: if the engine queries for DOM elements the caller
+  // didn't supply via sectionContent, the constructor throws and the
+  // pageerror bypasses setStatus("failed") — user sees a blank section
+  // with no error UI. bnt_explainer's cloud Engine for example sets
+  // innerHTML on .bnt-meter; an absent .bnt-meter → TypeError. The
+  // synthetic smoke fixture is the one engine that doesn't query for
+  // anything in the section. See G1c3a_PR_REVIEW.md §3.2 (S1).
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    if (sectionContent !== undefined) return;
+    if (moduleName === "_smoke") return;
+    console.warn(
+      `[RevealExplainer] module="${moduleName}": sectionContent is undefined. ` +
+        `The engine's constructor likely queries section DOM that this ` +
+        `wrapper hasn't provided — pass sectionContent={<…/>} with the ` +
+        `scaffolding the engine expects.`
+    );
+  }, [moduleName, sectionContent]);
+
   const jsUrl = `${BASE_PATH}/explainers/${moduleName}.js`;
   const cssUrl = `${BASE_PATH}/explainers/${moduleName}.css`;
 

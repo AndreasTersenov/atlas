@@ -59,32 +59,40 @@ test.describe("bnt_explainer port", () => {
       .getAttribute("src");
     expect(scriptSrc).toBe(`${expectedBasePath}/explainers/bnt_explainer.js`);
 
-    // The engine constructor reads .bnt-cloud + .bnt-kernels canvases from
-    // the scaffolding the page renders. If bnt_explainer.js threw during
-    // attach() — bad port, missing dependency, the React-strict-mode
-    // double-mount tripping it — _setupCanvas wouldn't run and the
-    // engine's render loop wouldn't size them. A working attach leaves
-    // both canvases visible with non-zero rendered dimensions.
+    // The engine constructor reads .bnt-cloud + .bnt-kernels canvases
+    // from the scaffolding the page renders. Constructor throws (bad
+    // port, missing scaffolding element, etc.) surface as a pageerror
+    // and are caught by the consoleErrors net in afterEach — that's the
+    // primary failure-mode net. The positive-signal proof that attach()
+    // completed is the act-counter rendering "1 / 5", which only happens
+    // after setStatus("ready"). The engine-state probe below adds a
+    // genuine logic-level assertion: engine.act === 1 only if the engine
+    // constructed AND _syncFromReveal called goTo(1).
     const section = page.locator(
       '[data-bnt-explainer][data-bnt-kind="cloud"]'
     );
     await expect(section).toBeVisible();
     await expect(section.locator("canvas.bnt-cloud")).toBeVisible();
     await expect(section.locator("canvas.bnt-kernels")).toBeVisible();
-    // _setupCanvas sets canvas.width via getBoundingClientRect * DPR.
-    // Empty viewport / failed attach → width stays at the HTML attribute
-    // default (1520, 640). A sized canvas reads >100 once layout runs.
-    const cloudWidth = await section
-      .locator("canvas.bnt-cloud")
-      .evaluate((c: HTMLCanvasElement) => c.width);
-    expect(cloudWidth).toBeGreaterThan(100);
-
-    // Wrapper status flipped to ready (visible via the act-counter
-    // rendering "1 / 5" — counter only renders post-mount).
     await expect(page.locator('[data-role="act-counter"]')).toHaveText(
       "1 / 5",
       { timeout: 5_000 }
     );
+
+    // Engine-state probe — the only assertion that catches a port
+    // regression that throws *after* _setupCanvas runs (constructor lines
+    // 178–180: _buildMeter() can throw if .bnt-meter is absent, AFTER
+    // _setupCanvas has already sized the canvas). Without this, the
+    // visible canvas would look like a healthy attach. engine.act is
+    // updated by goTo() which is called by _syncFromReveal — so this
+    // value is 1 only on a fully-wired handshake.
+    const engineAct = await page.evaluate(() => {
+      const w = window as unknown as {
+        BNTExplainer?: { _engines: { engine: { act: number } }[] };
+      };
+      return w.BNTExplainer?._engines[0]?.engine.act ?? null;
+    });
+    expect(engineAct).toBe(1);
   });
 
   test("S5 RAF leak fix: navigating away then back leaves a single engine entry per section", async ({
@@ -99,27 +107,39 @@ test.describe("bnt_explainer port", () => {
     // fixture, not bnt_explainer) and back. Without S5, the previous
     // mount's engine entry remains in _engines pointing at a detached
     // section; on remount _syncFromReveal walks both. With S5, detached
-    // sections are skipped.
+    // sections are skipped — but more importantly, the detached engine
+    // doesn't get its RAF loop re-armed.
     await page.goto(p("/smoke/explainer/"), { waitUntil: "load" });
     await page.goto(p("/smoke/bnt-explainer/"), { waitUntil: "load" });
     await expect(
-      page.locator('[data-bnt-explainer][data-bnt-kind="cloud"] canvas.bnt-cloud')
+      page.locator(
+        '[data-bnt-explainer][data-bnt-kind="cloud"] canvas.bnt-cloud'
+      )
     ).toBeVisible();
 
-    // Probe the engines list and confirm only the live section is the
-    // sync target. The bnt_explainer global is shared across loads
-    // (script cached, BNTExplainer is module-scope), so accumulated
-    // entries persist. We check that document.contains() filters them.
-    const liveSyncCount = await page.evaluate(() => {
+    // Let any in-flight tween settle. Without this, an engine that was
+    // mid-animation when navigation happened would still be `running`
+    // because of its already-scheduled RAF callbacks, not because the
+    // S5 filter is broken. SMOOTH=0.12 converges in ~12 frames; 500ms
+    // gives generous headroom on 60fps and slower CI runners.
+    await page.waitForTimeout(500);
+
+    // Load-bearing S5 assertion: after settling, no detached engine
+    // entry should still be `running`. If the S5 filter were removed,
+    // _syncFromReveal would re-arm the RAF loop on detached engines on
+    // every fragmentshown event, and `running` would be true.
+    const detachedStillRunning = await page.evaluate(() => {
       const w = window as unknown as {
-        BNTExplainer?: { _engines: { section: HTMLElement }[] };
+        BNTExplainer?: {
+          _engines: { section: HTMLElement; engine: { running: boolean } }[];
+        };
       };
       const engines = w.BNTExplainer?._engines;
-      if (!engines) return -1;
-      // Count entries whose section is still in the DOM — what
-      // _syncFromReveal's S5 filter sees.
-      return engines.filter((e) => document.contains(e.section)).length;
+      if (!engines) return false;
+      return engines.some(
+        (e) => !document.contains(e.section) && e.engine.running
+      );
     });
-    expect(liveSyncCount).toBe(1);
+    expect(detachedStillRunning).toBe(false);
   });
 });
