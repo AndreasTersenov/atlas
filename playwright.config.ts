@@ -21,12 +21,19 @@ const BASE_URL = `http://localhost:${PORT}`;
 //
 // BASE_PATH is derived from TARGET here, then exported into process.env so
 // tests/e2e/url.ts reads the same value. Single source of truth, single
-// env var to set when invoking locally. Without this, the runner and the
-// build subprocess could disagree (the build would get the basePath via
-// the `VAR=…` shell prefix, but the runner's process.env would be empty
-// and `p("/")` would return `/`, not `/atlas/`).
+// env var to set when invoking locally.
 const TARGET = process.env.ATLAS_TEST_TARGET === "ghpages" ? "ghpages" : "vercel";
 const BASE_PATH = TARGET === "ghpages" ? "/atlas" : "";
+
+// Mutating process.env at module-load time is the load-bearing line:
+// tests/e2e/url.ts captures `process.env.NEXT_PUBLIC_ATLAS_BASE_PATH` at
+// its own module scope. Playwright guarantees this config runs first, so
+// url.ts sees the right value. The webServer subprocess inherits the env
+// from this Node process when it forks, so `npm run build` also sees the
+// right basePath — no shell prefix needed on the webServer command.
+// Other runners (vitest, ad-hoc node scripts) don't guarantee config-first
+// ordering; importing url.ts from those contexts without setting the env
+// var yourself returns the empty basePath.
 process.env.NEXT_PUBLIC_ATLAS_BASE_PATH = BASE_PATH;
 
 // webServer commands. Both use `exec` so SIGTERM from Playwright lands on
@@ -43,8 +50,11 @@ const vercelCmd =
 // URL rewrite.) We can't run two builds in parallel locally — the build
 // clobbers out/ — but in CI the two targets run in separate jobs so
 // there's no conflict.
+// NEXT_PUBLIC_ATLAS_BASE_PATH is inherited from the Node parent's process.env
+// (set on line 30 above) — no shell prefix needed. Keeping the source-of-
+// truth single makes the basepath wiring grep-traceable to one line.
 const ghpagesCmd =
-  `NEXT_PUBLIC_ATLAS_BASE_PATH=${BASE_PATH} npm run build && ` +
+  `npm run build && ` +
   `rm -rf .test-mount && mkdir -p .test-mount${BASE_PATH} && ` +
   `cp -r out/. .test-mount${BASE_PATH}/ && ` +
   `exec npx serve .test-mount -l ${PORT} --no-port-switching --no-clipboard`;
@@ -77,8 +87,18 @@ export default defineConfig({
     command: TARGET === "ghpages" ? ghpagesCmd : vercelCmd,
     url: BASE_URL,
     // Locally reuse a running server to skip the rebuild step. CI always
-    // cold-starts. Caveat: a stale `serve` from a previous build serves
-    // stale out/ artifacts — kill it before re-running on source change.
+    // cold-starts. Two caveats worth knowing:
+    //   1. Same-target staleness: a `serve` left running from a previous
+    //      build serves stale out/ artifacts. Kill it before re-running
+    //      on source change.
+    //   2. Cross-target reuse trap: running `ATLAS_TEST_TARGET=ghpages
+    //      npm run test:e2e` while any vercel-target `serve` is alive on
+    //      port 3000 (e.g. from a side terminal during G.1.c.2 dev) causes
+    //      Playwright to reuse the *wrong* server. The ghpages-target
+    //      tests then hit /atlas/ against the vercel serve, get a 404,
+    //      and fail with what looks like a build error rather than a
+    //      clear "wrong configuration" signal. Kill any running `serve`
+    //      instance before switching targets locally.
     reuseExistingServer: !process.env.CI,
     // Next build + asset copy can take ~30s on a cold CI cache.
     timeout: 180_000,
