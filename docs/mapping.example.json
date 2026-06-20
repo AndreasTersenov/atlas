@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy this to ~/.atlas/mapping.json on each machine and edit. `machine` is the stable label shown in the cockpit (os.hostname() is NOT stable on laptops — it follows DHCP). Patterns are picomatch-style: `**` matches recursively. First rule that matches wins.",
+  "owner_email": "andrewtersenov@gmail.com",
+  "machine": "macbook",
+  "halos": [
+    { "pattern": "/Users/atersenov/Software/atlas",     "halo_id": "personal-site" },
+    { "pattern": "/Users/atersenov/Software/atlas/**",  "halo_id": "personal-site" },
+    { "pattern": "/Users/atersenov/research/bnt-cnn/**", "halo_id": "bnt-cnn" },
+    { "pattern": "/home/at/research/bnt-cnn/**",         "halo_id": "bnt-cnn" },
+    { "pattern": "/home/at/research/wavelet/**",         "halo_id": "wavelet-l1-norm" },
+    { "pattern": "/home/at/research/**",                 "halo_id": "thesis" }
+  ]
+}

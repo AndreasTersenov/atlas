@@ -12,13 +12,16 @@
     "lint": "eslint",
     "db:push": "npx supabase db push",
     "db:seed": "tsx scripts/seed.ts",
-    "db:types": "npx supabase gen types typescript --linked > lib/database.types.ts"
+    "db:types": "npx supabase gen types typescript --linked > lib/database.types.ts",
+    "bridge": "tsx scripts/atlas-bridge.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
+    "chokidar": "^3.6.0",
     "dotenv": "^17.4.2",
     "next": "16.2.6",
+    "picomatch": "^4.0.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tsx": "^4.22.1",
@@ -28,6 +31,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/picomatch": "^4.0.3",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/ws": "^8.18.1",

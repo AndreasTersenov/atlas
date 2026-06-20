@@ -305,7 +305,12 @@ const HAZE_OUTER_OVERRIDE: Record<string, number> = {
   thesis: 130,
 };
 
-function drawHalo(ctx: CanvasRenderingContext2D, halo: Halo, hover = false) {
+function drawHalo(
+  ctx: CanvasRenderingContext2D,
+  halo: Halo,
+  hover = false,
+  activity = 0
+) {
   const palette = HALO_PALETTE[halo.domain];
   const { position_x: x, position_y: y, radius: r } = halo;
 
@@ -316,6 +321,12 @@ function drawHalo(ctx: CanvasRenderingContext2D, halo: Halo, hover = false) {
   const isLocked = halo.status === "locked";
   const dormantHazeScale = isDormant ? 0.35 : 1;
   const dormantGlyphAlpha = isDormant ? 0.55 : 1;
+
+  // v1.5 activity boost: halos with a fresh Claude session (claude_sessions
+  // row updated in the last few minutes) glow brighter. `activity` is a
+  // 0..1 score the cockpit computes from session recency. The public map
+  // passes 0 so nothing changes there.
+  const activityMul = 1 + 0.3 * activity;
 
   // Mask the halo interior so background filaments/particles/dashes don't
   // bleed through and clutter the glyph. The haze still extends past `r` and
@@ -334,10 +345,13 @@ function drawHalo(ctx: CanvasRenderingContext2D, halo: Halo, hover = false) {
   const drawHazeLayer = (radius: number, alphaScale: number) => {
     const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
     for (const stop of palette.haze) {
-      const a =
+      const a = Math.min(
+        1,
         (hover ? Math.min(1, stop.alpha * 1.3) : stop.alpha) *
-        alphaScale *
-        dormantHazeScale;
+          alphaScale *
+          dormantHazeScale *
+          activityMul
+      );
       g.addColorStop(stop.offset, rgba(stop.color, a));
     }
     ctx.fillStyle = g;
@@ -449,6 +463,10 @@ function drawTitleChrome(ctx: CanvasRenderingContext2D) {
 export interface RenderOptions {
   halos: Halo[];
   filaments: Filament[];
+  // Per-halo activity score in [0, 1] driven by Claude session recency
+  // (v1.5). Halos in the map without an entry default to 0 — the public map
+  // omits this prop entirely and renders identically to v1.4.
+  activityByHaloId?: Record<string, number>;
 }
 
 // Render all static layers (everything except the hover overlay) into ctx.
@@ -456,6 +474,7 @@ export interface RenderOptions {
 export function renderStatic(ctx: CanvasRenderingContext2D, opts: RenderOptions) {
   const sprites = makeSprites();
   const halosById = new Map(opts.halos.map((h) => [h.id, h]));
+  const activity = opts.activityByHaloId ?? {};
 
   drawBackground(ctx);
   drawNebulaTints(ctx);
@@ -464,7 +483,8 @@ export function renderStatic(ctx: CanvasRenderingContext2D, opts: RenderOptions)
   drawFilaments(ctx, sprites, opts.filaments, halosById);
   drawKnots(ctx, sprites, opts.filaments, halosById);
 
-  for (const halo of opts.halos) drawHalo(ctx, halo);
+  for (const halo of opts.halos)
+    drawHalo(ctx, halo, false, activity[halo.id] ?? 0);
   for (const halo of opts.halos) drawHaloLabel(ctx, halo);
 
   drawDomainLabels(ctx);
@@ -474,8 +494,9 @@ export function renderStatic(ctx: CanvasRenderingContext2D, opts: RenderOptions)
 // Draw the hover overlay (a brighter version of the hovered halo) on top.
 export function renderHoverOverlay(
   ctx: CanvasRenderingContext2D,
-  halo: Halo
+  halo: Halo,
+  activity = 0
 ) {
-  drawHalo(ctx, halo, true);
+  drawHalo(ctx, halo, true, activity);
   drawHaloLabel(ctx, halo);
 }

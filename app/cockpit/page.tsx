@@ -10,6 +10,25 @@ import {
 // Cookies are read per-request → page must be dynamic.
 export const dynamic = "force-dynamic";
 
+// Per-halo activity score from session recency. 0..1; sessions seen "now"
+// score 1.0, fade linearly to 0 over the next hour. Pulled out of the page
+// function so the React-purity lint doesn't flag the per-row mutation
+// inside a server-component render path.
+const ACTIVITY_WINDOW_MS = 60 * 60 * 1000;
+function computeActivityScores(
+  rows: Array<{ halo_id: string | null; last_seen: string }>
+): Record<string, number> {
+  const now = Date.now();
+  const out: Record<string, number> = {};
+  for (const row of rows) {
+    if (!row.halo_id) continue;
+    if (out[row.halo_id] !== undefined) continue;
+    const ageMs = now - new Date(row.last_seen).getTime();
+    out[row.halo_id] = Math.max(0, Math.min(1, 1 - ageMs / ACTIVITY_WINDOW_MS));
+  }
+  return out;
+}
+
 export default async function Cockpit() {
   const supabase = await createServerClient();
 
@@ -21,9 +40,22 @@ export default async function Cockpit() {
   } = await supabase.auth.getUser();
   if (!user) redirect(`/sign-in?next=${encodeURIComponent("/cockpit")}`);
 
-  const [haloResult, filamentResult] = await Promise.all([
+  const [haloResult, filamentResult, sessionsResult] = await Promise.all([
     supabase.from("halos").select("*"),
     supabase.from("filaments").select("*"),
+    // Latest session per halo. RLS scopes to the current user, so this is
+    // their cross-machine activity only.
+    //
+    // TODO(v1.6+): replace with a server-side aggregation (a postgres view
+    // returning `(halo_id, max(last_seen))` or `distinct on (halo_id)
+    // order by last_seen desc`). At v1.5 single-user scale (<100 sessions
+    // total ever) the over-fetch is invisible; revisit when session count
+    // crosses a few hundred.
+    supabase
+      .from("claude_sessions")
+      .select("halo_id, last_seen")
+      .not("halo_id", "is", null)
+      .order("last_seen", { ascending: false }),
   ]);
 
   if (haloResult.error || filamentResult.error) {
@@ -31,6 +63,11 @@ export default async function Cockpit() {
       `Failed to load cockpit data: ${
         haloResult.error?.message ?? filamentResult.error?.message
       }`
+    );
+  }
+  if (sessionsResult.error) {
+    throw new Error(
+      `Failed to load Claude sessions: ${sessionsResult.error.message}`
     );
   }
 
@@ -44,9 +81,20 @@ export default async function Cockpit() {
     );
   }
 
+  // Compute per-halo activity in [0, 1] from session recency: a session
+  // last seen now → 1.0, fading linearly to 0 over the next ACTIVITY_WINDOW.
+  // Halos with no session activity get nothing → renderer treats as 0.
+  // Sessions are sorted last_seen DESC, so first row per halo wins.
+  const activityByHaloId = computeActivityScores(sessionsResult.data ?? []);
+
   return (
     <main className="relative flex h-dvh w-screen items-center justify-center overflow-hidden bg-[#0A0214] p-2 sm:p-4">
-      <CosmicWebMap halos={halos} filaments={filaments} linkPrefix="/cockpit/" />
+      <CosmicWebMap
+        halos={halos}
+        filaments={filaments}
+        linkPrefix="/cockpit/"
+        activityByHaloId={activityByHaloId}
+      />
 
       {/* Cockpit chrome: signed-in indicator + sign-out */}
       <div className="pointer-events-none absolute left-0 top-0 z-10 flex w-full items-start justify-between p-3 text-xs sm:p-4">

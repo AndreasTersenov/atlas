@@ -107,6 +107,56 @@ export type Database = {
         }
         Relationships: []
       }
+      claude_sessions: {
+        Row: {
+          claude_session_id: string
+          created_at: string
+          cwd: string
+          halo_id: string | null
+          hostname: string
+          id: string
+          last_seen: string
+          owner_id: string
+          started_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          claude_session_id: string
+          created_at?: string
+          cwd: string
+          halo_id?: string | null
+          hostname: string
+          id?: string
+          last_seen?: string
+          owner_id: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          claude_session_id?: string
+          created_at?: string
+          cwd?: string
+          halo_id?: string | null
+          hostname?: string
+          id?: string
+          last_seen?: string
+          owner_id?: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "claude_sessions_halo_id_fkey"
+            columns: ["halo_id"]
+            isOneToOne: false
+            referencedRelation: "halos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       filaments: {
         Row: {
           created_at: string
@@ -290,6 +340,44 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      session_messages: {
+        Row: {
+          content: Json
+          id: string
+          owner_id: string
+          recorded_at: string
+          role: string
+          sequence: number
+          session_id: string
+        }
+        Insert: {
+          content: Json
+          id?: string
+          owner_id: string
+          recorded_at?: string
+          role: string
+          sequence: number
+          session_id: string
+        }
+        Update: {
+          content?: Json
+          id?: string
+          owner_id?: string
+          recorded_at?: string
+          role?: string
+          sequence?: number
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_messages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "claude_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_settings: {
         Row: {
