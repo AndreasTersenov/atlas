@@ -33,7 +33,11 @@ test("public homepage renders the cosmic web map", async ({ page }, testInfo) =>
     consoleErrors.push(`pageerror: ${err.message}`);
   });
 
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  // `load` (not `domcontentloaded`) so React entry chunks have finished
+  // fetching and hydration has begun by the time we proceed — otherwise
+  // hydration-time console.errors race with the listener attached above
+  // and can mask the actual test assertions.
+  await page.goto("/", { waitUntil: "load" });
 
   // The map's canvas carries an aria-label we set in v0 — that's our
   // resilient handle.
@@ -61,6 +65,39 @@ test("public homepage renders the cosmic web map", async ({ page }, testInfo) =>
   // rebuildStatic() runs synchronously in the same task as the width-set,
   // so by the time .width > 100 the static layer cache is already filled.
   // No timer-based wait needed before snapping.
+
+  // The width check alone proves the ResizeObserver fired — *not* that
+  // anything actually rendered. The drawing chain in renderStatic() lives
+  // inside the ResizeObserver callback, which swallows thrown exceptions.
+  // If renderStatic throws, repaint() is skipped and the visible canvas
+  // stays in its post-`canvas.width=…` reset state (fully transparent).
+  // Probe the center pixel: (a) alpha > 0 means the canvas was actually
+  // drawn to; (b) it's not the pure background colour means at least the
+  // nebula tint or halo layer rendered on top. The center of the 730×640
+  // view sits inside the research nebula region around the thesis halo,
+  // so a real render leaves a non-trivial colour there.
+  const probe = await canvas.evaluate((el) => {
+    const c = el as HTMLCanvasElement;
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    const { data } = ctx.getImageData(
+      Math.floor(c.width / 2),
+      Math.floor(c.height / 2),
+      1,
+      1
+    );
+    return { r: data[0], g: data[1], b: data[2], a: data[3] };
+  });
+  expect(probe, "could not read canvas pixel data").not.toBeNull();
+  expect(
+    probe!.a,
+    `canvas center pixel is transparent (alpha=${probe!.a}) — renderStatic likely threw inside the ResizeObserver callback, which swallowed the exception`
+  ).toBeGreaterThan(0);
+  const isPureBackground = probe!.r === 26 && probe!.g === 8 && probe!.b === 40;
+  expect(
+    isPureBackground,
+    `canvas center is the pure background colour #1A0828 (rgb 26,8,40) — nebula tint and halo layers didn't render. Pixel was (${probe!.r}, ${probe!.g}, ${probe!.b}, ${probe!.a}).`
+  ).toBe(false);
 
   // Screenshot as evidence — per-test output path so parallel projects /
   // retries don't overwrite each other's artifacts.

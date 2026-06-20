@@ -14,6 +14,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:types": "npx supabase gen types typescript --linked > lib/database.types.ts",
     "bridge": "tsx scripts/atlas-bridge.ts",
+    "setup": "playwright install chromium",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report"

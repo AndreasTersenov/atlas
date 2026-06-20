@@ -14,9 +14,10 @@
 /coverage
 
 # playwright
+# Browser binaries live at ~/.cache/ms-playwright (outside the repo,
+# auto-excluded). Only the test output / report dirs need ignoring here.
 /test-results
 /playwright-report
-/playwright/.cache
 
 # next.js
 /.next/
