@@ -2,7 +2,7 @@
 
 /*
   Explicit @source so Tailwind's Oxide scanner picks up Next.js dynamic-segment
-  directories like app/cockpit/[haloId]/. Without this, the square brackets in
+  directories like app/p/[haloId]/. Without this, the square brackets in
   the folder name get interpreted as a glob character class and the files
   inside are skipped — classes that only appear there (p-5, max-w-6xl,
   lg:grid-cols-3, …) never get generated and the panel renders unstyled.

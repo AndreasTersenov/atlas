@@ -322,10 +322,10 @@ function drawHalo(
   const dormantHazeScale = isDormant ? 0.35 : 1;
   const dormantGlyphAlpha = isDormant ? 0.55 : 1;
 
-  // v1.5 activity boost: halos with a fresh Claude session (claude_sessions
-  // row updated in the last few minutes) glow brighter. `activity` is a
-  // 0..1 score the cockpit computes from session recency. The public map
-  // passes 0 so nothing changes there.
+  // Activity boost: halos with a non-zero score glow brighter. `activity`
+  // is a 0..1 score the caller computes (v2 plan: from `git log --since=30d`
+  // at build time per V2_SHOWCASE_PLAN §I). The map passes 0 by default so
+  // callers without a source see the flat v0-equivalent render.
   const activityMul = 1 + 0.3 * activity;
 
   // Mask the halo interior so background filaments/particles/dashes don't

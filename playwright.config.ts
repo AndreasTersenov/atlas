@@ -1,12 +1,12 @@
 // Playwright config for Atlas v2 — see docs/V2_SHOWCASE_PLAN.md §G.0 + AGENTS.md
 // "Tests are not optional".
 //
-// This is the stack-proof config: just enough that one e2e test runs locally
-// and in CI. It expands as v2 features land.
-//
-// webServer: `npm run dev` for now (Turbopack, fast cold start). When the v2
-// MVP wires `output: 'export'` we switch to serving `out/` directly so the
-// tests verify what we actually ship to GitHub Pages.
+// As of G.1.a (next.config migration), webServer builds the static export and
+// serves out/. This is what we actually ship to both Vercel and GH Pages, so
+// the green check now means the production runtime renders — not just dev.
+// The earlier dev-server-backed setup conflated two different guarantees;
+// see docs/G0_PR_REVIEW.md §1.1 for the staff-engineer review that prompted
+// the switch.
 
 import { defineConfig, devices } from "@playwright/test";
 
@@ -41,11 +41,16 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "npm run dev",
+    // Build the static export, then serve out/ with `serve` (no Next
+    // runtime needed). This is the same artifact that goes to Vercel +
+    // GH Pages — the green check now means the production runtime works.
+    // Locally, reuse a running server so iterative test runs don't rebuild
+    // every time; on CI always cold-start so we test the actual build.
+    command: "npm run build && npx serve out -l 3000 --no-port-switching --no-clipboard",
     url: baseURL,
     reuseExistingServer: !process.env.CI,
-    // Next + Turbopack first build can be slow on CI cold cache.
-    timeout: 120_000,
+    // Next build can take ~30s on a cold CI cache; allow generous headroom.
+    timeout: 180_000,
     stdout: "pipe",
     stderr: "pipe",
   },

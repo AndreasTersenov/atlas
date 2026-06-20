@@ -147,7 +147,8 @@ export const NAMED_JUNCTIONS: Junction[] = [
   { id: "dl-hub", x: 371, y: 405, intensity: 1 },
 ];
 
-// Panel chrome accents used on /cockpit/[haloId]. Co-located with the map
+// Panel chrome accents used on /p/[haloId] (v2 per-halo project pages, when
+// they land) and on any halo-status pill elsewhere. Co-located with the map
 // palette so a future domain/status addition updates both surfaces from one
 // place. Derived from HALO_PALETTE but tuned for muted pill backgrounds
 // (HALO_PALETTE entries are gradient stops, not flat solids).
