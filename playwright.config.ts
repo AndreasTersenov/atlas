@@ -36,6 +36,12 @@ const BASE_PATH = TARGET === "ghpages" ? "/atlas" : "";
 // var yourself returns the empty basePath.
 process.env.NEXT_PUBLIC_ATLAS_BASE_PATH = BASE_PATH;
 
+// Enable test-only routes (e.g. /_smoke/explainer for RevealExplainer
+// e2e). Read at build time by the gated pages; production CI does not
+// set this so the routes never ship to atlas-rust-one.vercel.app or
+// andreastersenov.github.io/atlas/.
+process.env.ATLAS_TEST_ROUTES = "1";
+
 // webServer commands. Both use `exec` so SIGTERM from Playwright lands on
 // `serve` directly rather than the parent shell (otherwise an orphan can
 // hold the port and the next run fails as EADDRINUSE masquerading as a
