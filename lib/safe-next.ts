@@ -6,7 +6,10 @@
 // That's an open-redirect vulnerability (CWE-601). We accept only relative
 // paths starting with a single `/` and reject protocol-relative URLs (`//evil`).
 
-const FALLBACK = "/cockpit";
+// Dead code as of G.1.a (the sign-in / cockpit flow it served is deleted).
+// Scheduled for removal in G.1.f. Fallback is the public homepage so the
+// utility is still semantically valid if anything resurrects it.
+const FALLBACK = "/";
 
 export function safeNext(
   next: string | null | undefined,

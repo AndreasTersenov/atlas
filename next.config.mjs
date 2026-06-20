@@ -27,19 +27,15 @@ const nextConfig = {
   output: "export",
 
   // basePath flows from build env so the same source compiles for both
-  // targets. NEXT_PUBLIC_ so client code (e.g. <RevealExplainer>'s
-  // dynamically-injected <script src=…> URLs) can also read it; without
-  // that prefix the value would not be inlined into the client bundle.
-  // The "/" prefix is intentional — Next.js requires basePath to start
-  // with a slash (or be falsy/empty).
+  // targets. The "NEXT_PUBLIC_" prefix on the env var name is what bakes
+  // it into the client bundle (Next's DefinePlugin substitutes
+  // `process.env.NEXT_PUBLIC_ATLAS_BASE_PATH` at build time wherever it
+  // appears in client code) — no `env:` block needed here.
+  //
+  // <RevealExplainer> reads this at runtime to prefix the dynamically-
+  // injected `<script src=…>` and `<link href=…>` URLs that bypass
+  // Next's automatic basePath handling.
   basePath: basePath || undefined,
-
-  // The route name itself is exposed for any client code that needs to
-  // build a basePath-aware URL — e.g. CSS `<link href="/explainers/foo.css">`
-  // injected by <RevealExplainer> can't rely on Next's auto-prefix.
-  env: {
-    NEXT_PUBLIC_ATLAS_BASE_PATH: basePath,
-  },
 
   // Force directory-style URLs (/p/bnt-cnn/ → out/p/bnt-cnn/index.html) so
   // GitHub Pages serves direct-links correctly. Without this, /p/bnt-cnn

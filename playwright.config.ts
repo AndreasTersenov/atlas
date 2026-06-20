@@ -41,12 +41,21 @@ export default defineConfig({
   ],
 
   webServer: {
-    // Build the static export, then serve out/ with `serve` (no Next
-    // runtime needed). This is the same artifact that goes to Vercel +
-    // GH Pages — the green check now means the production runtime works.
-    // Locally, reuse a running server so iterative test runs don't rebuild
-    // every time; on CI always cold-start so we test the actual build.
-    command: `npm run build && npx serve out -l ${PORT} --no-port-switching --no-clipboard`,
+    // Build the static export, then `exec` into `serve` so it becomes a
+    // direct child of the process Playwright manages. Without `exec` the
+    // shell wrapper survives only as long as it's running `npm run build`;
+    // once `serve` starts, the shell waits and SIGTERM on Playwright
+    // shutdown lands on the shell, which may or may not forward it cleanly.
+    // On hard kill (180s CI timeout / SIGKILL), `serve` can survive as an
+    // orphan holding port 3000 — the next run then 'EADDRINUSE'-fails
+    // during build (npm exits 0, serve can't bind) and looks like a build
+    // problem. `exec` replaces the shell so SIGTERM lands on serve directly.
+    //
+    // Locally, reuseExistingServer skips the rebuild step — convenient,
+    // but watch out: a stale `serve` left running from a previous build
+    // serves stale `out/` artifacts. If source has changed, kill the
+    // server before re-running. On CI we always cold-start.
+    command: `npm run build && exec npx serve out -l ${PORT} --no-port-switching --no-clipboard`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     // Next build can take ~30s on a cold CI cache; allow generous headroom.
