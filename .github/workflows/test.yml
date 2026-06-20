@@ -38,15 +38,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: vercel
-            base_path: ""
-          - target: ghpages
-            base_path: "/atlas"
+        target: [vercel, ghpages]
 
     env:
       ATLAS_TEST_TARGET: ${{ matrix.target }}
-      NEXT_PUBLIC_ATLAS_BASE_PATH: ${{ matrix.base_path }}
+      # NEXT_PUBLIC_ATLAS_BASE_PATH is derived from ATLAS_TEST_TARGET inside
+      # playwright.config.ts so the runner + the build subprocess agree
+      # without two env vars to keep in sync. Don't set it here.
 
     steps:
       - uses: actions/checkout@v4

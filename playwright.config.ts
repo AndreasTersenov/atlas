@@ -18,7 +18,16 @@ const BASE_URL = `http://localhost:${PORT}`;
 // Switched via env var so the same config drives both CI matrix legs.
 // ATLAS_TEST_TARGET=ghpages → build + mount + serve under /atlas/.
 // Anything else (including unset) → the default Vercel-target build.
+//
+// BASE_PATH is derived from TARGET here, then exported into process.env so
+// tests/e2e/url.ts reads the same value. Single source of truth, single
+// env var to set when invoking locally. Without this, the runner and the
+// build subprocess could disagree (the build would get the basePath via
+// the `VAR=…` shell prefix, but the runner's process.env would be empty
+// and `p("/")` would return `/`, not `/atlas/`).
 const TARGET = process.env.ATLAS_TEST_TARGET === "ghpages" ? "ghpages" : "vercel";
+const BASE_PATH = TARGET === "ghpages" ? "/atlas" : "";
+process.env.NEXT_PUBLIC_ATLAS_BASE_PATH = BASE_PATH;
 
 // webServer commands. Both use `exec` so SIGTERM from Playwright lands on
 // `serve` directly rather than the parent shell (otherwise an orphan can
@@ -29,14 +38,15 @@ const vercelCmd =
   `exec npx serve out -l ${PORT} --no-port-switching --no-clipboard`;
 
 // For the GH-Pages target: build with the basePath set, then stage out/ at
-// .test-mount/atlas/ so a request for /atlas/p/bnt-cnn/ resolves correctly
-// against `serve`'s default file-system lookup. (serve has no URL rewrite.)
-// We can't run two builds in parallel locally — the build clobbers out/ —
-// but in CI the two targets run in separate jobs so there's no conflict.
+// .test-mount<BASE_PATH>/ so a request for <BASE_PATH>/p/bnt-cnn/ resolves
+// correctly against `serve`'s default file-system lookup. (serve has no
+// URL rewrite.) We can't run two builds in parallel locally — the build
+// clobbers out/ — but in CI the two targets run in separate jobs so
+// there's no conflict.
 const ghpagesCmd =
-  `NEXT_PUBLIC_ATLAS_BASE_PATH=/atlas npm run build && ` +
-  `rm -rf .test-mount && mkdir -p .test-mount/atlas && ` +
-  `cp -r out/. .test-mount/atlas/ && ` +
+  `NEXT_PUBLIC_ATLAS_BASE_PATH=${BASE_PATH} npm run build && ` +
+  `rm -rf .test-mount && mkdir -p .test-mount${BASE_PATH} && ` +
+  `cp -r out/. .test-mount${BASE_PATH}/ && ` +
   `exec npx serve .test-mount -l ${PORT} --no-port-switching --no-clipboard`;
 
 export default defineConfig({
