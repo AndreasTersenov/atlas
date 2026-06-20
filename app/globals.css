@@ -32,3 +32,67 @@ body {
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   overscroll-behavior: none;
 }
+
+/*
+  Minimal prose styling for MDX-rendered halo pages — the format-proof
+  level. Polish lands in G.1.c when <RevealExplainer> arrives and the
+  per-halo page gets its real layout. Bare-element selectors so MDX
+  output picks them up automatically.
+*/
+.prose-atlas {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: #d8c8e4;
+}
+.prose-atlas h1 {
+  margin-top: 2rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #f0e2fa;
+}
+.prose-atlas h2 {
+  margin-top: 1.75rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #e8d6f4;
+}
+.prose-atlas p {
+  margin-top: 1rem;
+}
+.prose-atlas blockquote {
+  margin-top: 1.25rem;
+  border-left: 2px solid #5a3a78;
+  padding-left: 1rem;
+  color: #a878b0;
+  font-style: italic;
+}
+.prose-atlas code {
+  background: #2a1842;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.9em;
+}
+.prose-atlas ol,
+.prose-atlas ul {
+  margin-top: 1rem;
+  padding-left: 1.5rem;
+  list-style-position: outside;
+}
+.prose-atlas ol {
+  list-style-type: decimal;
+}
+.prose-atlas ul {
+  list-style-type: disc;
+}
+.prose-atlas li {
+  margin-top: 0.5rem;
+}
+.prose-atlas a {
+  color: #c5a8dc;
+  text-decoration: underline;
+  text-decoration-color: rgba(155, 107, 196, 0.4);
+}
+.prose-atlas a:hover {
+  color: #e8d6f4;
+}

@@ -8,6 +8,7 @@
 // See docs/V2_SHOWCASE_PLAN.md §H for the full deploy plan and §I for the
 // resolved choices that drove these flags.
 
+import createMDX from "@next/mdx";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +17,22 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const basePath = process.env.NEXT_PUBLIC_ATLAS_BASE_PATH ?? "";
+
+// remark plugins must be specified as STRINGS (not imported callables) so
+// Turbopack can serialize them across the JS↔Rust boundary — see Next 16
+// `mdx.md` §"Using Plugins with Turbopack" and V2_PLAN_REVIEW.md §4.3.
+const withMDX = createMDX({
+  extension: /\.mdx?$/,
+  options: {
+    remarkPlugins: [
+      "remark-frontmatter",
+      // Parses the YAML block and exports it as `frontmatter` from the
+      // compiled MDX module — `import Doc, { frontmatter } from "..."`.
+      ["remark-mdx-frontmatter", { name: "frontmatter" }],
+    ],
+    rehypePlugins: [],
+  },
+});
 
 /** @type {import("next").NextConfig} */
 const nextConfig = {
@@ -51,6 +68,11 @@ const nextConfig = {
   // Pin the workspace root to silence the multi-lockfile warning (carried
   // over from v1).
   turbopack: { root: __dirname },
+
+  // Default pageExtensions is ["ts","tsx","js","jsx"] which is what we
+  // want — MDX files live under content/halos/ and are *imported*, not
+  // dropped into app/ as routes. Leaving pageExtensions at the default
+  // keeps file-based routing for tsx/jsx pages only.
 };
 
-export default nextConfig;
+export default withMDX(nextConfig);

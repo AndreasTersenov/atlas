@@ -1,0 +1,33 @@
+---
+halo_id: bnt-cnn
+title: "BNT × CNN: a basis-robust summary"
+tagline: "Why the wavelet ℓ1-norm collapses under BNT while the CNN doesn't."
+links:
+  - { kind: github, href: "https://github.com/AndreasTersenov/cnn_sbi", label: "cnn_sbi (code)" }
+  - { kind: talk,   href: "https://andreastersenov.github.io/talks/NonGaussian_Universe_2026/", label: "Talk slides — Non-Gaussian Universe (2026)" }
+related_halos: [thesis, wavelet-l1-norm, mass-map-uncertainty]
+---
+
+> **Placeholder page** — this is the format-proof landing in G.1.b. The
+> interactive cloud / mechanism / twopoint explainers (5 acts each, ported
+> from the *Non-Gaussian Universe* talk) wire up in G.1.c. Real prose
+> follows when the wrapper component lands.
+
+The wavelet ℓ¹ norm is a powerful non-Gaussian summary statistic for
+weak-lensing maps. It collapses, however, the moment you apply the BNT
+(Bernardeau–Nishimichi–Taruya) transform — even with cross-channel maps.
+The CNN, trained on the same maps, does not.
+
+This page is here to prove the `/p/[haloId]` route renders.
+
+## What's on this page (when fully wired)
+
+1. The "shadows of a rotating cloud" explainer — five acts walking
+   through why the ℓ¹ norm goes blind in the BNT frame while the
+   measurement geometry remains, in principle, fully informative.
+2. The "signal & noise under BNT" mechanism — six acts showing the
+   recovery ladder (auto → +cross → CNN → whiten).
+3. The 2-point fingerprint — the share of the BNT collapse that is
+   genuinely two-point structure vs irreducibly joint.
+
+Links to the underlying code and slides are in the page header above.
