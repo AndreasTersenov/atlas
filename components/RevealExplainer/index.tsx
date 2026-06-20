@@ -121,9 +121,12 @@ export default function RevealExplainer({
   // initial render at act 1).
   const [act, setAct] = useState<number>(1);
 
-  // Keep the status ref in sync. React's batching means this runs after
-  // the React-state update but before any subsequent emit/handler call,
-  // because both happen inside React's commit phase.
+  // Belt-and-suspenders: statusRef is set synchronously in onLoaded()
+  // before any emit() — that's the load-bearing ordering fix that makes
+  // `Reveal.isReady()` return true during the ready emission. This
+  // effect runs asynchronously after React paints, and only exists to
+  // keep the ref in sync if `status` ever changes through a path other
+  // than onLoaded() (none today; future-proofing).
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
@@ -133,8 +136,17 @@ export default function RevealExplainer({
 
   // Build the Reveal stub once. Listeners go through a Map so emit() can
   // dispatch to any number of subscribers — same shape as the original
-  // Reveal API. The stub is also published to window.Reveal so explainers
-  // that call into the global rather than the argument see it.
+  // Reveal API.
+  //
+  // The stub is passed to the explainer as the argument to attach(stub).
+  // We deliberately do NOT publish to window.Reveal: with multiple
+  // <RevealExplainer> instances on the same page (the G.1.c.3 bnt-cnn
+  // page mounts three engines: cloud, mechanism, twopoint), the last
+  // mount would overwrite the global and any explainer reaching for
+  // window.Reveal would see the wrong instance's stub. Per-instance
+  // wiring requires explainers to use the closure argument from
+  // attach(). bnt_explainer.js already does so; verify this for any
+  // new explainer before merging it.
   const ensureStub = useCallback((): RevealStub => {
     if (stubRef.current) return stubRef.current;
     const listeners = listenersRef.current;
@@ -157,10 +169,6 @@ export default function RevealExplainer({
       },
     };
     stubRef.current = stub;
-    // Some explainers call `Reveal.on(...)` against the argument they
-    // receive in attach(stub); others reach for `window.Reveal`. Publish
-    // both paths so either convention works.
-    window.Reveal = stub;
     return stub;
   }, []);
 
@@ -227,6 +235,14 @@ export default function RevealExplainer({
       // re-render for any UI that observes the status flag.
       statusRef.current = "ready";
       stub.emit("ready");
+      // Emit slidechanged once init() has had a chance to run during the
+      // ready emission. bnt_explainer's slidechanged handler is the ONLY
+      // path that calls engine.resize() on all engines. Without this,
+      // canvases draw with the constructor-time bounding rect and never
+      // respond to post-mount layout shifts (web font load, side panel
+      // open, etc.). A ResizeObserver-driven version that re-emits on
+      // dimension changes lands in G.1.c.3.
+      stub.emit("slidechanged");
       setStatus("ready");
     };
 
@@ -403,9 +419,16 @@ export default function RevealExplainer({
           data-bnt-kind={kind}
           className="reveal-explainer-section"
         >
-          {/* Visible content the explainer paints into. For the smoke
-              fixture this is a single number; real explainers paint a
-              <canvas> and other DOM. */}
+          {/*
+            data-role="smoke-act" is fixture-specific markup the
+            `_smoke.js` test fixture writes into. Real explainers
+            (bnt_explainer.js et al) inject their own <canvas> + DOM and
+            don't touch this span — it's visually inert but reads as
+            unexplained DOM in DevTools on a real halo page. Remove this
+            element when G.1.c.3 replaces the smoke fixture with the
+            real bnt_explainer section content. Tracked in
+            docs/G1c2_PR_REVIEW.md §1.2 (S1).
+          */}
           <span data-role="smoke-act">1</span>
           {fragmentMarkers}
         </section>
