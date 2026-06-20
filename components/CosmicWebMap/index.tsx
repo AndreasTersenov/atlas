@@ -10,12 +10,12 @@ interface Props {
   halos: Halo[];
   filaments: Filament[];
   // When set, halo clicks navigate to `${linkPrefix}${haloId}` instead of
-  // logging. Cockpit passes "/cockpit/" to get per-halo command panels; the
-  // public map omits it so clicks stay no-ops until v2 ships `/p/[halo-id]`.
+  // logging. v2 public map will set this to "/p/" once the per-halo project
+  // pages land; until then the public homepage omits it and clicks log.
   linkPrefix?: string;
-  // Per-halo activity score in [0, 1] driven by Claude session recency
-  // (v1.5). Cockpit fetches it from claude_sessions; the public map omits
-  // it and gets the v1.4-identical render.
+  // Per-halo activity score in [0, 1]. v2 will source this at build time
+  // from `git log --since=30d` (see V2_SHOWCASE_PLAN §I). The renderer
+  // treats absent halos as 0 and scales haze alpha by (1 + 0.3 * score).
   activityByHaloId?: Record<string, number>;
 }
 
@@ -141,8 +141,8 @@ export default function CosmicWebMap({
     const hit = hitTest(e.clientX, e.clientY);
     if (!hit) return;
     if (linkPrefix) {
-      // Tolerate callers that pass "/cockpit" or "/cockpit/" identically —
-      // otherwise the former joins as "/cockpitthesis".
+      // Tolerate callers that pass "/p" or "/p/" identically — otherwise
+      // the former joins as "/pthesis".
       const base = linkPrefix.endsWith("/") ? linkPrefix.slice(0, -1) : linkPrefix;
       router.push(`${base}/${hit.id}`);
       return;
