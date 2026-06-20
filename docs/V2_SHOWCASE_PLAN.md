@@ -273,9 +273,9 @@ Three categories: (a) settled by review, (b) needing Andreas's call, (c) deferre
 - **Acceptance criteria** (review §2.4): the subjective "Andreas likes it" gate is now the Tier-1 polish gate, not the function gate. The function gate is §G.2 1–6.
 - **Homepage chrome** (review §2.3): the `/` page gets a one-line site title + tagline + a single "Start with the BNT story →" CTA. Without it a cold visitor sees colored dots with no affordance.
 
-**Needs Andreas's call (no good default):**
+**Resolved with Andreas 2026-06-20:**
 
-- **One vs three explainer engines on the bnt-cnn page** (review §1.2). `bnt_explainer.js` ships three engines (`cloud`, `mechanism`, `twopoint`). The talk uses all three as a sequence. MVP could be **cloud only** (cheapest, validates the format; the talk's real punchline takes the mechanism + twopoint payoffs) or **all three with separate Beat groups per kind** (~+1d of wrapper work, but the bnt-cnn page reads like the talk's story). Default: cloud-only for the MVP, add mechanism + twopoint as a follow-up enrichment if the format lands. **Confirm or override.**
+- **All three explainer engines on the bnt-cnn page** (review §1.2). `bnt_explainer.js` ships `cloud`, `mechanism`, `twopoint` — the talk's full BNT narrative arc. The MVP embeds all three as separate scroll groups with their own `<Beat>` blocks per kind. The wrapper grows a `kind` prop and the page's MDX has three `<RevealExplainer kind="..." />` instances. Adds ~1d to the wrapper budget (now baked into §J).
 
 **Deferred with default:**
 
@@ -292,14 +292,14 @@ Three categories: (a) settled by review, (b) needing Andreas's call, (c) deferre
 | `next.config.ts → next.config.mjs` for ESM remark plugins | — | **0.25d** (new) |
 | `mdx-components.tsx` with basePath-aware `img` mapper | — | **0.25d** (new) |
 | `/p/[haloId]` route + MDX wiring (Next 16 async `params`, `generateStaticParams`, frontmatter plugins) | 0.5d | **0.75d** |
-| `<RevealExplainer>` (fragment-state emulator, basePath asset URLs, load-failure fallback, aria-live, reduced-motion, prev/next buttons) | 1d | **2–2.5d** — review §1.1 made this the actual product, not a thin wrapper |
-| `bnt-cnn` MDX prose + explainer port + figure assets + `sync-explainer.ts` | 1d | **1.25d** |
+| `<RevealExplainer>` (fragment-state emulator, basePath asset URLs, load-failure fallback, aria-live, reduced-motion, prev/next buttons, **multi-engine `kind` prop**) | 1d | **3–3.5d** — review §1.1 made it the actual product not a thin wrapper, and Andreas's "all three engines" call adds the multi-kind dimension |
+| `bnt-cnn` MDX prose + explainer port + figure assets + `sync-explainer.ts` (prose now spans cloud + mechanism + twopoint arc) | 1d | **1.5d** |
 | Wire `CosmicWebMap` click → `/p/[id]` | 0.5d | **0.5d** (cleanup of v1 surfaces breaks out into §D, see below) |
 | Local preview + Vercel preview + GH Pages preview | 0.5d | **0.75d** — adding the GH Pages target is where review §1.4 / §1.5 / §4.5 gotchas surface |
 | Tier-2 + Tier-3 infill across remaining halos | 2–3 weeks | unchanged (content, not engineering) |
 | Retire v1 (separate PR, after MVP validates) | 0.5d | **0.75d** — review §1.8 retirement ordering takes a follow-up |
 
-**MVP (Tier-1 `bnt-cnn` end-to-end): ~5.5–6 code-days of engineering + however long the prose takes.** The original 3.5d under-counted the wrapper and missed the new G.0 stack-proof PR, the config migration, the basePath asset plumbing, and the second deploy target.
+**MVP (Tier-1 `bnt-cnn` end-to-end): ~6.5–7 code-days of engineering + however long the prose takes.** Original 3.5d under-counted the wrapper, missed G.0, missed the config migration, missed the basePath asset plumbing, and missed the second deploy target. Andreas's all-three-engines call on top of that bumps the wrapper from 2–2.5d to 3–3.5d.
 
 ## K. Working agreement for v2 (see `AGENTS.md`)
 
@@ -315,4 +315,6 @@ The first instance of (1) is the staff-engineer review of *this plan*, attached 
 
 ## L. Status
 
-**Plan written 2026-06-20. Updated 2026-06-20 with (a) decided "both targets" personal-site integration, (b) pointer to the new `AGENTS.md` working agreement. Now going through the first adversarial review per §K.1; appending findings before Andreas signs off.**
+**Plan written 2026-06-20. Adversarial review at `docs/V2_PLAN_REVIEW.md`. Must-fix items folded in (revised §E RevealExplainer, §H basePath story, new §G.0 stack-proof PR, §G.2 Playwright-assertable acceptance criteria, §D dependency-aware retirement order). Open decision settled: all three explainer engines on bnt-cnn. Revised effort estimate: 6.5–7 code-days for the MVP.**
+
+**Awaiting Andreas's explicit "sign off, start" before any code beyond docs.**
