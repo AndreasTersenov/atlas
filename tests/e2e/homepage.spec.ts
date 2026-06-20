@@ -12,7 +12,7 @@
 
 import { expect, test } from "@playwright/test";
 
-test("public homepage renders the cosmic web map", async ({ page }) => {
+test("public homepage renders the cosmic web map", async ({ page }, testInfo) => {
   // Capture console errors as we go — the test fails if any fire before the
   // final assertion. Filter out the well-known noise we accept on /
   // (Grammarly's hydration warning was the v1 case; keep this list short and
@@ -44,19 +44,28 @@ test("public homepage renders the cosmic web map", async ({ page }) => {
 
   // The canvas only gets a non-zero width after CosmicWebMap's ResizeObserver
   // measures the container and sets canvas.width. If this is 0, the React
-  // component crashed silently and we just rendered the static HTML.
-  const widthAttr = await canvas.evaluate(
-    (el) => (el as HTMLCanvasElement).width
-  );
-  expect(widthAttr).toBeGreaterThan(100);
+  // component crashed silently and we just rendered the static HTML. Poll
+  // rather than read once — ResizeObserver fires in its own task and races
+  // with `toBeVisible()` on slower CI runs.
+  await expect
+    .poll(
+      async () => canvas.evaluate((el) => (el as HTMLCanvasElement).width),
+      {
+        message:
+          "canvas.width never grew past 100 — ResizeObserver / rebuildStatic didn't run",
+        timeout: 5_000,
+      }
+    )
+    .toBeGreaterThan(100);
 
-  // Give one paint cycle for the static layer cache to fill before snapping.
-  await page.waitForTimeout(500);
+  // rebuildStatic() runs synchronously in the same task as the width-set,
+  // so by the time .width > 100 the static layer cache is already filled.
+  // No timer-based wait needed before snapping.
 
-  // Screenshot as evidence — committed to test-results/ on demand, attached
-  // to CI artifacts automatically.
+  // Screenshot as evidence — per-test output path so parallel projects /
+  // retries don't overwrite each other's artifacts.
   await page.screenshot({
-    path: "test-results/homepage.png",
+    path: testInfo.outputPath("homepage.png"),
     fullPage: false,
   });
 

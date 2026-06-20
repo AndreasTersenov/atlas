@@ -27,7 +27,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Match package.json's `engines.node >=20.17`. `20` alone resolves
+          # to the latest 20.x, which is fine today but drifts silently if
+          # a stricter npm engine check ever lands.
+          node-version: "20.17"
           cache: npm
 
       - name: Install npm dependencies
@@ -38,7 +41,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          # Bump if the @playwright/test version pin in package.json changes.
+          # Hashed off the whole lockfile because the resolved Playwright
+          # version sits there (npm only re-pins on lockfile change). Any
+          # dep update busts this cache — that's accepted noise; the cost
+          # is one chromium re-download per dep bump (~93MB, ~30s on CI).
           key: playwright-chromium-${{ hashFiles('package-lock.json') }}
 
       - name: Install Playwright Chromium
