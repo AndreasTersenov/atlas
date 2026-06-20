@@ -12,6 +12,21 @@
 
 import { expect, test } from "@playwright/test";
 import { p } from "./url";
+import halosData from "../../data/halos.json";
+
+interface HaloRecord {
+  id: string;
+  position_x: number;
+  position_y: number;
+  radius: number;
+}
+
+// Canvas viewBox is 730x640 (CosmicWebMap/colors.ts). Halos are positioned in
+// view coordinates; the hit-test in CosmicWebMap/index.tsx:118 scales them by
+// canvas.getBoundingClientRect(). We mirror that scaling here so the test
+// click lands within the halo's radius regardless of viewport size.
+const VIEW_W = 730;
+const VIEW_H = 640;
 
 test("public homepage renders the cosmic web map", async ({ page }, testInfo) => {
   // Capture console errors as we go — the test fails if any fire before the
@@ -113,4 +128,76 @@ test("public homepage renders the cosmic web map", async ({ page }, testInfo) =>
     consoleErrors,
     `Console errors during homepage load:\n${consoleErrors.join("\n")}`
   ).toHaveLength(0);
+});
+
+test("clicking the bnt-cnn halo navigates to /p/bnt-cnn/", async ({ page }) => {
+  // G.1.d: clickability is gated on listMdxHaloIds() at build time, so
+  // only halos with a content/halos/<id>.mdx file route on click. bnt-cnn
+  // is the one MDX page that exists; clicking its glyph should land on
+  // /p/bnt-cnn/. Mirrors the renderer's view-to-client coordinate
+  // scaling (CosmicWebMap/index.tsx:118): we read the canvas's actual
+  // bounding rect and map the halo's view-space position into pixel
+  // coords inside it.
+  await page.goto(p("/"), { waitUntil: "load" });
+
+  const canvas = page.getByRole("img", {
+    name: /Atlas — a personal cosmic web of projects/i,
+  });
+  await expect(canvas).toBeVisible({ timeout: 15_000 });
+
+  const bnt = (halosData as HaloRecord[]).find((h) => h.id === "bnt-cnn");
+  expect(bnt, "data/halos.json missing bnt-cnn record").toBeDefined();
+
+  // Pixel-space click target. We click the halo's CENTER (dist 0 < r), so
+  // this is robust to small scaling differences across CI viewports.
+  const rect = await canvas.boundingBox();
+  expect(rect, "canvas has no bounding box").not.toBeNull();
+  const clickX = rect!.x + (bnt!.position_x / VIEW_W) * rect!.width;
+  const clickY = rect!.y + (bnt!.position_y / VIEW_H) * rect!.height;
+
+  await page.mouse.click(clickX, clickY);
+
+  // Next router pushes the path; under static export the route is
+  // pre-rendered and visiting it loads /p/bnt-cnn/. waitForURL is
+  // basePath-aware as long as we use the path-only matcher.
+  await page.waitForURL(/\/p\/bnt-cnn\/?(\?|#|$)/, { timeout: 5_000 });
+  await expect(
+    page.getByRole("heading", {
+      name: "BNT × CNN: a basis-robust summary",
+      level: 1,
+    })
+  ).toBeVisible();
+});
+
+test("clicking a halo without a /p/ page is a no-op", async ({ page }) => {
+  // G.1.d: the homepage passes clickableHaloIds=listMdxHaloIds(), so any
+  // halo that doesn't have content/halos/<id>.mdx is rendered but inert
+  // — clicks should not navigate. Today bnt-cnn is the only MDX file;
+  // any other public halo is safe to use as the negative-case target.
+  await page.goto(p("/"), { waitUntil: "load" });
+
+  const canvas = page.getByRole("img", {
+    name: /Atlas — a personal cosmic web of projects/i,
+  });
+  await expect(canvas).toBeVisible({ timeout: 15_000 });
+
+  // Pick a public halo that is NOT bnt-cnn; using "thesis" — it has a
+  // position and a visible glyph but no MDX file (G.1.b only wrote
+  // bnt-cnn.mdx).
+  const target = (halosData as HaloRecord[]).find((h) => h.id === "thesis");
+  expect(target, "data/halos.json missing thesis record").toBeDefined();
+
+  const rect = await canvas.boundingBox();
+  expect(rect).not.toBeNull();
+  const clickX = rect!.x + (target!.position_x / VIEW_W) * rect!.width;
+  const clickY = rect!.y + (target!.position_y / VIEW_H) * rect!.height;
+
+  const beforeUrl = page.url();
+  await page.mouse.click(clickX, clickY);
+
+  // Wait briefly to give any unintended router.push a chance to fire.
+  // 250ms is well beyond Next's same-task scheduling — if a navigation
+  // were going to happen, the URL would change within this window.
+  await page.waitForTimeout(250);
+  expect(page.url()).toBe(beforeUrl);
 });
