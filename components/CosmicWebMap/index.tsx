@@ -143,8 +143,14 @@ export default function CosmicWebMap({
 
   const onLeave = () => setHoveredId(null);
 
+  // When the caller hasn't provided a clickability set, NOTHING is
+  // clickable — including any future caller that passes `linkPrefix`
+  // without `clickableHaloIds`. The previous default (undefined → all
+  // clickable) was a footgun: a "just wire up navigation" caller would
+  // route every halo click to a potentially-nonexistent /<prefix>/<id>
+  // and produce 404s. See G1d_PR_REVIEW.md §1.2 (S2).
   const isClickable = (id: string): boolean =>
-    clickableHaloIds === undefined || clickableHaloIds.has(id);
+    clickableHaloIds !== undefined && clickableHaloIds.has(id);
 
   const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
@@ -174,8 +180,10 @@ export default function CosmicWebMap({
         aria-label="Atlas — a personal cosmic web of projects"
         style={{
           // Pointer cursor only for halos that are actually clickable.
-          // Non-clickable halos still show their hover overlay (so the
-          // user gets the label and links) but read as inert via cursor.
+          // Non-clickable halos still show the hover overlay (a brighter
+          // glow + the halo's name label, both drawn into the canvas —
+          // no DOM elements, no anchor tags) so users get the name on
+          // hover, but the cursor staying `default` signals inertness.
           cursor:
             hoveredId && isClickable(hoveredId) ? "pointer" : "default",
           display: "block",
