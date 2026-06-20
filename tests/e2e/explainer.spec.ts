@@ -14,12 +14,37 @@
 import { expect, test } from "@playwright/test";
 import { p } from "./url";
 
+// Captures console.error AND pageerror; tests can assert the array is
+// empty at the end. Same shape as tests/e2e/homepage.spec.ts so the
+// invariant is uniform across the suite.
+const IGNORED_CONSOLE_PATTERNS: RegExp[] = [
+  /\[Fast Refresh\]/i,
+  /Download the React DevTools/i,
+];
+
 test.describe("RevealExplainer wrapper", () => {
+  let consoleErrors: string[];
+
   test.beforeEach(async ({ page }) => {
-    // Fail the test on any console.error that isn't a known-ignore.
-    page.on("pageerror", (err) => {
-      throw new Error(`pageerror: ${err.message}`);
+    consoleErrors = [];
+    page.on("console", (msg) => {
+      if (msg.type() !== "error") return;
+      const text = msg.text();
+      if (IGNORED_CONSOLE_PATTERNS.some((re) => re.test(text))) return;
+      consoleErrors.push(text);
     });
+    page.on("pageerror", (err) => {
+      consoleErrors.push(`pageerror: ${err.message}`);
+    });
+  });
+
+  test.afterEach(() => {
+    // Tests that intentionally trigger errors (e.g. the script-404
+    // fallback) reset this array themselves before exit.
+    expect(
+      consoleErrors,
+      `Console errors during test:\n${consoleErrors.join("\n")}`
+    ).toHaveLength(0);
   });
 
   test("loads the explainer JS+CSS with basePath, initial state is act 1", async ({
@@ -126,5 +151,19 @@ test.describe("RevealExplainer wrapper", () => {
 
     // Counter still renders so users have a manual escape hatch.
     await expect(page.locator('[data-role="act-counter"]')).toHaveText("1 / 5");
+
+    // The wrapper's onerror handler logs to console.error by design. Pop
+    // that expected line before afterEach asserts on an empty array;
+    // anything else in the array is a real failure.
+    const expectedLoadFailure = consoleErrors.findIndex((e) =>
+      /\[RevealExplainer\] Failed to load .*_smoke\.js/.test(e)
+    );
+    expect(expectedLoadFailure).toBeGreaterThanOrEqual(0);
+    consoleErrors.splice(expectedLoadFailure, 1);
+    // Browser also emits a "Failed to load resource" line for the
+    // intercepted 404. Drop those too if present.
+    consoleErrors = consoleErrors.filter(
+      (e) => !/Failed to load resource/i.test(e)
+    );
   });
 });

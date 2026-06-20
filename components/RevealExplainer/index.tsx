@@ -110,18 +110,31 @@ export default function RevealExplainer({
   const proseRef = useRef<HTMLDivElement | null>(null);
   const stubRef = useRef<RevealStub | null>(null);
   const listenersRef = useRef<Map<string, Set<RevealHandler>>>(new Map());
+  // Ref-mirror of `status` so the stub's `isReady()` closure always sees
+  // the live value. Without this, the stub built on first attach captures
+  // the initial "loading" status and never updates — `isReady()` reports
+  // false forever even after setStatus("ready").
+  const statusRef = useRef<LoadStatus>("loading");
 
   const [status, setStatus] = useState<LoadStatus>("loading");
   // Current act is 1..acts. Always at least 1 (the explainer expects an
   // initial render at act 1).
   const [act, setAct] = useState<number>(1);
 
+  // Keep the status ref in sync. React's batching means this runs after
+  // the React-state update but before any subsequent emit/handler call,
+  // because both happen inside React's commit phase.
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
   const jsUrl = `${BASE_PATH}/explainers/${moduleName}.js`;
   const cssUrl = `${BASE_PATH}/explainers/${moduleName}.css`;
 
   // Build the Reveal stub once. Listeners go through a Map so emit() can
   // dispatch to any number of subscribers — same shape as the original
-  // Reveal API.
+  // Reveal API. The stub is also published to window.Reveal so explainers
+  // that call into the global rather than the argument see it.
   const ensureStub = useCallback((): RevealStub => {
     if (stubRef.current) return stubRef.current;
     const listeners = listenersRef.current;
@@ -137,15 +150,19 @@ export default function RevealExplainer({
         set.forEach((h) => h(...args));
       },
       isReady() {
-        return status === "ready";
+        return statusRef.current === "ready";
       },
       getCurrentSlide() {
         return sectionRef.current;
       },
     };
     stubRef.current = stub;
+    // Some explainers call `Reveal.on(...)` against the argument they
+    // receive in attach(stub); others reach for `window.Reveal`. Publish
+    // both paths so either convention works.
+    window.Reveal = stub;
     return stub;
-  }, [status]);
+  }, []);
 
   // Toggle `.visible` on the first (act - 1) fragment markers to mirror
   // Reveal's fragment-advance behavior. Then fire `fragmentshown` so the
@@ -204,10 +221,11 @@ export default function RevealExplainer({
       }
       const stub = ensureStub();
       explainer.attach(stub);
-      // Synchronously fire ready so the explainer's first sync can run.
-      // bnt_explainer's _syncFromReveal will then poll for `.visible`
-      // fragments — we haven't toggled any yet (act = 1, visibleCount = 0)
-      // which puts the engine at act 1. Correct initial state.
+      // Flip readiness BEFORE emitting so a handler that calls
+      // Reveal.isReady() inside the ready emission sees true. statusRef
+      // is the live source (state-via-ref); setStatus triggers the React
+      // re-render for any UI that observes the status flag.
+      statusRef.current = "ready";
       stub.emit("ready");
       setStatus("ready");
     };
@@ -219,11 +237,27 @@ export default function RevealExplainer({
     };
 
     if (script) {
-      // Already loaded — call attach now.
-      if (window[attachName]) {
+      // Existing tag from a previous mount. Three states:
+      //   - data-explainer-loaded="true" + window[attachName] present:
+      //       fully loaded, just call attach now.
+      //   - data-explainer-loaded="true" but window[attachName] missing:
+      //       script loaded but didn't publish its global; loaded handler
+      //       won't fire again, so call onLoaded() directly so the
+      //       failure path (which checks for missing attach()) runs.
+      //   - data-explainer-loaded undefined: still loading; wire up
+      //       handlers as for a fresh script.
+      const alreadyLoaded = script.dataset.explainerLoaded === "true";
+      if (alreadyLoaded) {
         queueMicrotask(onLoaded);
       } else {
-        script.addEventListener("load", onLoaded, { once: true });
+        script.addEventListener(
+          "load",
+          () => {
+            script!.dataset.explainerLoaded = "true";
+            onLoaded();
+          },
+          { once: true }
+        );
         script.addEventListener("error", onError, { once: true });
       }
     } else {
@@ -231,9 +265,17 @@ export default function RevealExplainer({
       script.id = scriptId;
       script.src = jsUrl;
       script.async = true;
-      script.addEventListener("load", onLoaded, { once: true });
-      script.addEventListener("error", onError, { once: true });
-      head.appendChild(script);
+      const scriptEl = script;
+      scriptEl.addEventListener(
+        "load",
+        () => {
+          scriptEl.dataset.explainerLoaded = "true";
+          onLoaded();
+        },
+        { once: true }
+      );
+      scriptEl.addEventListener("error", onError, { once: true });
+      head.appendChild(scriptEl);
     }
 
     return () => {
@@ -326,17 +368,23 @@ export default function RevealExplainer({
     [acts]
   );
 
-  // Beats: only direct children with `data-beat-n` actually drive acts.
-  // Validate the count vs `acts` in dev so authors notice a mismatch.
+  // Beats: only direct children that are <Beat> elements (or carry an
+  // explicit `n` prop) actually drive acts. Validate the count vs `acts`
+  // in dev so authors notice a mismatch. The previous version of this
+  // check looked for `data-beat-n` on React props — but Beat sets that
+  // attribute at *render* time, not as a prop, so the count was always 0.
   const beatChildren = useMemo(() => {
     if (process.env.NODE_ENV !== "production") {
-      const count = Children.toArray(children).filter(
-        (c) =>
-          isValidElement(c) &&
-          typeof c.props === "object" &&
-          c.props !== null &&
-          "data-beat-n" in c.props
-      ).length;
+      const count = Children.toArray(children).filter((c) => {
+        if (!isValidElement(c)) return false;
+        if (c.type === Beat) return true;
+        // Accept any element with an explicit `n` prop too (in case
+        // someone wraps Beat or builds their own beat-like component).
+        const props = c.props as { n?: unknown } | null;
+        return (
+          props !== null && typeof props === "object" && typeof props.n === "number"
+        );
+      }).length;
       if (count !== 0 && count !== acts) {
         console.warn(
           `[RevealExplainer] kind=${kind}: acts={${acts}} but ${count} <Beat> children found`
