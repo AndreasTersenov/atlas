@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // basePath e2e mount dir (created by playwright.config.ts when
+    // ATLAS_TEST_TARGET=ghpages; mirrors out/ so eslint shouldn't scan it).
+    ".test-mount/**",
+    // Playwright run artifacts.
+    "test-results/**",
+    "playwright-report/**",
   ]),
 ]);
 

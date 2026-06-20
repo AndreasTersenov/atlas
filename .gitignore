@@ -19,6 +19,9 @@
 /test-results
 /playwright-report
 
+# basePath e2e mount dir (created by playwright.config.ts ghpages target)
+/.test-mount
+
 # next.js
 /.next/
 /out/

@@ -10,6 +10,7 @@
 //     means unknown ids 404 at build time, not runtime).
 
 import { expect, test } from "@playwright/test";
+import { p } from "./url";
 
 test("halo page renders the MDX content", async ({ page }, testInfo) => {
   // Catch any console errors that fire during hydration; same filter as
@@ -31,7 +32,7 @@ test("halo page renders the MDX content", async ({ page }, testInfo) => {
 
   // trailingSlash:true emits /p/bnt-cnn/ as the canonical URL. Hitting the
   // trailing-slash form keeps GH Pages parity (no redirect cost).
-  const response = await page.goto("/p/bnt-cnn/", { waitUntil: "load" });
+  const response = await page.goto(p("/p/bnt-cnn/"), { waitUntil: "load" });
   expect(response?.status()).toBe(200);
 
   // The frontmatter title appears as the page <h1>.
@@ -66,15 +67,25 @@ test("halo page renders the MDX content", async ({ page }, testInfo) => {
 
 test("unknown halo id resolves to the not-found page", async ({ page }) => {
   // Under output:'export' + dynamicParams:false, /p/no-such-halo/ has no
-  // generated route. `serve` returns the static 404 page Next emits.
-  const response = await page.goto("/p/no-such-halo/", {
+  // generated route. The host's 404 handler takes over.
+  const response = await page.goto(p("/p/no-such-halo/"), {
     waitUntil: "load",
   });
 
-  // serve returns 404 for unmatched paths and falls back to 404.html;
-  // confirm both signals.
+  // Status 404 is the universal contract — checked on both targets.
   expect(response?.status()).toBe(404);
-  await expect(
-    page.getByRole("heading", { name: /this page could not be found/i })
-  ).toBeVisible();
+
+  // The Next-styled "This page could not be found." body is host-specific.
+  // - Vercel target: `serve out/` finds out/404.html (root of the served
+  //   tree) and streams it as the body.
+  // - GH Pages target / our `.test-mount` equivalent: 404.html lives at
+  //   .test-mount/atlas/404.html, not at the served root, so `serve` falls
+  //   through to a generic plain-text 404 body. In production this is also
+  //   GH Pages's call (whatever 404.html sits at andreastersenov.github.io's
+  //   repo root), not Atlas's. So the heading check only runs on Vercel.
+  if (process.env.ATLAS_TEST_TARGET !== "ghpages") {
+    await expect(
+      page.getByRole("heading", { name: /this page could not be found/i })
+    ).toBeVisible();
+  }
 });
