@@ -389,6 +389,36 @@ export default function RevealExplainer({
     return () => io.disconnect();
   }, [acts, children]);
 
+  // Separate IO for `data-bnt-active`: the patched bnt_explainer keydown
+  // handler routes R to the first section with this attribute, so
+  // multi-instance pages route R to the explainer the user is actually
+  // looking at (G1c3a_PR_REVIEW.md §4, S2). We observe the prose column —
+  // when any of this wrapper's prose is visible, this explainer is the
+  // user's current focus. Observing beats directly would require tracking
+  // per-beat intersecting state since IO callbacks deliver state changes
+  // not snapshots; observing the prose root sidesteps that.
+  useEffect(() => {
+    const prose = proseRef.current;
+    const section = sectionRef.current;
+    if (!prose || !section) return;
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          section.setAttribute("data-bnt-active", "true");
+        } else {
+          section.removeAttribute("data-bnt-active");
+        }
+      },
+      { threshold: 0 }
+    );
+    io.observe(prose);
+    return () => {
+      io.disconnect();
+      section.removeAttribute("data-bnt-active");
+    };
+  }, []);
+
   // Manual nav (prev/next) clamps to [1, acts] and scrolls the matching
   // beat into view so the IntersectionObserver doesn't immediately reset
   // us to a different act.

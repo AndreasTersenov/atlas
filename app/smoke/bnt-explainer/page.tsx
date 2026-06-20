@@ -11,6 +11,7 @@
 // Gated on ATLAS_TEST_ROUTES=1 like /smoke/explainer.
 
 import RevealExplainer, { Beat } from "@/components/RevealExplainer";
+import { BNTCloudSection } from "@/components/BNTExplainer/sections";
 
 const ACTS = 5;
 const TEST_ENABLED = process.env.ATLAS_TEST_ROUTES === "1";
@@ -52,55 +53,7 @@ export default function BntPortVerifyPage() {
           kind="cloud"
           acts={ACTS}
           sectionClassName="bnt-slide"
-          sectionContent={
-            <>
-              {/*
-                Section scaffolding the cloud Engine constructor queries for.
-                The engine reads .bnt-cloud + .bnt-kernels as canvases and
-                writes innerHTML into .bnt-meter / .bnt-caption /
-                .bnt-kernels-caption. Mirrored from the original
-                index_parked_bnt_preview.html slide so the engine sees the
-                DOM shape it was written against.
-              */}
-              <h3 className="bnt-title">
-                Same information, a different frame
-              </h3>
-              <div className="bnt-stage">
-                <div className="bnt-main">
-                  <canvas
-                    className="bnt-cloud"
-                    width={1520}
-                    height={1200}
-                    aria-label="A fixed point cloud of map pixels with rotating measuring axes and their 1-D projections"
-                  />
-                  <div className="bnt-cloud-tag">
-                    the point cloud (all the information) never moves
-                  </div>
-                </div>
-                <div className="bnt-side">
-                  <div className="bnt-meter" aria-label="FoM3 meter" />
-                  <div className="bnt-kernels-wrap">
-                    <div className="bnt-kernels-title">lensing kernels q(z)</div>
-                    <canvas
-                      className="bnt-kernels"
-                      width={640}
-                      height={360}
-                      aria-label="Lensing efficiency kernels morphing from deep overlapping to one shallow map plus three thin lens-redshift slices"
-                    />
-                    <div className="bnt-kernels-caption" />
-                  </div>
-                </div>
-              </div>
-              <div className="bnt-caption" aria-live="polite" />
-              <button
-                className="bnt-replay"
-                type="button"
-                title="Replay the sequence (R)"
-              >
-                ↻&nbsp;replay
-              </button>
-            </>
-          }
+          sectionContent={<BNTCloudSection />}
         >
           <Beat n={1}>
             <p>Beat 1 — four maps → a fixed cloud of pixels in channel space.</p>
