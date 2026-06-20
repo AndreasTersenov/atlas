@@ -134,6 +134,66 @@ test.describe("RevealExplainer wrapper", () => {
     await expect(next).toBeEnabled();
   });
 
+  test("scrolling backward returns through earlier acts", async ({ page }) => {
+    // G1c2_PR_REVIEW.md §S6.a — IO's topmost-in-entries logic is
+    // symmetric in theory but untested in reverse. Scroll forward to
+    // Beat 5, then explicitly scroll back to Beat 1, and confirm the
+    // act-counter walks back down to 1.
+    await page.goto(p("/smoke/explainer/"), { waitUntil: "load" });
+    const section = page.locator('[data-bnt-explainer][data-bnt-kind="smoke"]');
+
+    // Walk forward first so the test fails loud if the forward path
+    // regresses in a way the existing forward-only test misses.
+    for (let n = 2; n <= 5; n++) {
+      await page.locator(`[data-beat-n="${n}"]`).scrollIntoViewIfNeeded();
+      await expect(section).toHaveAttribute("data-current-act", String(n));
+    }
+
+    // Now walk backward. Each scroll-into-view positions the matching
+    // beat in the center of the viewport, so the IO's topmost-visible
+    // beat must transition back step by step.
+    for (let n = 4; n >= 1; n--) {
+      await page.locator(`[data-beat-n="${n}"]`).scrollIntoViewIfNeeded();
+      await expect(section).toHaveAttribute("data-current-act", String(n), {
+        timeout: 3_000,
+      });
+      await expect(section.locator('[data-role="smoke-act"]')).toHaveText(
+        String(n)
+      );
+    }
+  });
+
+  test("button click survives the IntersectionObserver mid-scroll race", async ({
+    page,
+  }) => {
+    // G1c2_PR_REVIEW.md §S6.b — goToAct() calls scrollIntoView with
+    // behavior:"smooth". During the smooth-scroll animation, beats other
+    // than the target briefly intersect, which could overwrite the act
+    // before the target settles. Confirm: after clicking Next twice
+    // (target act = 3), the counter reads "3 / 5" and HOLDS for 350ms.
+    // Any IO override during the scroll animation would flip it back to
+    // 1 or 2 within that window.
+    await page.goto(p("/smoke/explainer/"), { waitUntil: "load" });
+    const counter = page.locator('[data-role="act-counter"]');
+    const next = page.getByRole("button", { name: "Next act" });
+
+    await expect(counter).toHaveText("1 / 5");
+    await next.click();
+    await next.click();
+    await expect(counter).toHaveText("3 / 5");
+
+    // Don't fixed-sleep past the smooth-scroll: on slow CI the scroll can
+    // take 400ms+ and a 350ms sleep returns before the IO would override.
+    // Instead, wait for the target beat to be in the IO trigger zone
+    // (this is a strong proxy for "scroll has settled") and re-assert
+    // the counter held. If the IO won the race during the smooth-scroll
+    // animation, the counter would have drifted to a transitional value
+    // before this assertion.
+    const targetBeat = page.locator('[data-beat-n="3"]');
+    await targetBeat.waitFor({ state: "visible" });
+    await expect(counter).toHaveText("3 / 5");
+  });
+
   test("load failure renders the fallback notice", async ({ page }) => {
     // Intercept the script request and return 404. The wrapper's onerror
     // handler should set status=failed and render the role=status notice.

@@ -110,6 +110,13 @@ export interface RevealExplainerProps {
    * their own DOM from scratch.
    */
   sectionContent?: ReactNode;
+  /**
+   * Accessible name for the explainer section. Screen readers otherwise
+   * announce three identical unnamed landmarks on the bnt-cnn page.
+   * Pass the engine's heading text ("The cloud engine", etc.) so the
+   * section is distinguishable. See G1c3b_PR_REVIEW.md §1.7 (S5).
+   */
+  label?: string;
 }
 
 type LoadStatus = "loading" | "ready" | "failed";
@@ -123,6 +130,7 @@ export default function RevealExplainer({
   className,
   sectionClassName,
   sectionContent,
+  label,
 }: RevealExplainerProps) {
   const sectionRef = useRef<HTMLElement | null>(null);
   const proseRef = useRef<HTMLDivElement | null>(null);
@@ -389,6 +397,51 @@ export default function RevealExplainer({
     return () => io.disconnect();
   }, [acts, children]);
 
+  // Separate IO for `data-bnt-active`: the patched bnt_explainer keydown
+  // handler routes R to the first section with this attribute, so
+  // multi-instance pages route R to the explainer the user is actually
+  // looking at (G1c3a_PR_REVIEW.md §4, S2). We observe the prose column —
+  // when any of this wrapper's prose is visible, this explainer is the
+  // user's current focus. Observing beats directly would require tracking
+  // per-beat intersecting state since IO callbacks deliver state changes
+  // not snapshots; observing the prose root sidesteps that.
+  //
+  // threshold: 0 is deliberate. Multi-instance pages (bnt-cnn has three)
+  // have section boundaries where two prose columns simultaneously
+  // intersect the viewport — both sections then carry data-bnt-active.
+  // The keydown handler iterates _engines in document order and breaks
+  // on the first match, so cloud wins at the cloud/mechanism boundary
+  // and mechanism wins at the mechanism/twopoint boundary. Don't change
+  // to a higher threshold without thinking it through: a stricter rule
+  // would desync the R-key routing from the act-counter advancement
+  // (the beat IO uses rootMargin:"-20% 0px -20% 0px" — a different
+  // trigger zone entirely). See G1c3b_PR_REVIEW.md §1.4 (S1).
+  //
+  // Empty dep array is correct: both refs are populated by the time
+  // effects run (React commits the DOM before firing effects), so the
+  // observer is created exactly once per mount.
+  useEffect(() => {
+    const prose = proseRef.current;
+    const section = sectionRef.current;
+    if (!prose || !section) return;
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          section.setAttribute("data-bnt-active", "true");
+        } else {
+          section.removeAttribute("data-bnt-active");
+        }
+      },
+      { threshold: 0 }
+    );
+    io.observe(prose);
+    return () => {
+      io.disconnect();
+      section.removeAttribute("data-bnt-active");
+    };
+  }, []);
+
   // Manual nav (prev/next) clamps to [1, acts] and scrolls the matching
   // beat into view so the IntersectionObserver doesn't immediately reset
   // us to a different act.
@@ -454,6 +507,7 @@ export default function RevealExplainer({
           ref={sectionRef}
           data-bnt-explainer="true"
           data-bnt-kind={kind}
+          aria-label={label}
           className={`reveal-explainer-section ${sectionClassName ?? ""}`.trim()}
         >
           {sectionContent}

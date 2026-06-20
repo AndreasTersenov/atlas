@@ -93,6 +93,23 @@ test.describe("bnt_explainer port", () => {
       return w.BNTExplainer?._engines[0]?.engine.act ?? null;
     });
     expect(engineAct).toBe(1);
+
+    // G1c3a_PR_REVIEW.md §5 (N1): drive goTo() directly via the engine
+    // and confirm engine.act updates. This catches port regressions in
+    // _stateForAct or the ACTS table that don't surface as constructor
+    // throws — the engine attaches, the canvas paints initial state,
+    // but advancing fails silently. Only meaningful on the real engine,
+    // not the smoke fixture.
+    const engineActAfterGoTo = await page.evaluate(() => {
+      const w = window as unknown as {
+        BNTExplainer?: { _engines: { engine: { act: number; goTo(n: number): void } }[] };
+      };
+      const eng = w.BNTExplainer?._engines[0]?.engine;
+      if (!eng) return null;
+      eng.goTo(3);
+      return eng.act;
+    });
+    expect(engineActAfterGoTo).toBe(3);
   });
 
   test("S5 RAF leak fix: navigating away then back leaves a single engine entry per section", async ({
@@ -141,5 +158,35 @@ test.describe("bnt_explainer port", () => {
       );
     });
     expect(detachedStillRunning).toBe(false);
+  });
+
+  test("S2 data-bnt-active wiring: section is marked active when its prose is in view", async ({
+    page,
+  }) => {
+    // G1c3a_PR_REVIEW.md §4 (S2): the patched bnt_explainer keydown
+    // handler routes R to the first section with [data-bnt-active].
+    // RevealExplainer observes its prose column — when any prose is in
+    // the viewport, this explainer is the user's current focus and the
+    // attribute is set. Without S2, multi-instance pages always route R
+    // to the first-mounted engine (cloud), regardless of where the user
+    // is. On this single-instance harness, the prose is in view at load
+    // time → the attribute is set immediately. The multi-instance
+    // behavior is verified on the bnt-cnn halo page (G.1.c.3.b).
+    await page.goto(p("/smoke/bnt-explainer/"), { waitUntil: "load" });
+    const section = page.locator(
+      '[data-bnt-explainer][data-bnt-kind="cloud"]'
+    );
+    await expect(section).toHaveAttribute("data-bnt-active", "true", {
+      timeout: 3_000,
+    });
+
+    // Scroll WAY past the end of this explainer's prose — the next page
+    // section (or page bottom) takes over. Currently the smoke harness
+    // ends at the bottom of the explainer, so scrolling to the bottom
+    // takes the prose out of the viewport top edge but still leaves the
+    // last beat partially visible. We assert the attribute stays set —
+    // the prose-IO has threshold:0, so any intersection keeps it active.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect(section).toHaveAttribute("data-bnt-active", "true");
   });
 });

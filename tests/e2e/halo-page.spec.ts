@@ -65,6 +65,51 @@ test("halo page renders the MDX content", async ({ page }, testInfo) => {
   ).toHaveLength(0);
 });
 
+test("bnt-cnn three-engine page routes data-bnt-active by scroll position", async ({
+  page,
+}) => {
+  // G1c3b_PR_REVIEW.md §1.6 (S4): the bnt-port S2 test on the
+  // single-engine smoke harness proves the prose-IO wiring works, but
+  // doesn't catch the multi-instance routing case the wiring is for.
+  // Here we verify on the real three-engine page that scrolling to the
+  // mechanism prose causes the mechanism section to gain
+  // data-bnt-active. The patched bnt_explainer keydown listener
+  // (G.1.c.3.a) iterates _engines in document order, so this attribute
+  // is what makes R route to the explainer currently in view.
+  await page.goto(p("/p/bnt-cnn/"), { waitUntil: "load" });
+
+  // Initial load: the cloud explainer's prose is at the top of the page
+  // and intersects the viewport → cloud is active.
+  const cloud = page.locator(
+    '[data-bnt-explainer][data-bnt-kind="cloud"]'
+  );
+  const mechanism = page.locator(
+    '[data-bnt-explainer][data-bnt-kind="mechanism"]'
+  );
+  await expect(cloud).toHaveAttribute("data-bnt-active", "true", {
+    timeout: 5_000,
+  });
+
+  // Scroll to a mechanism beat. There are three <Beat n=3> on the page
+  // (one per explainer), so scope the locator to the mechanism's
+  // wrapper. `<Beat>` lives in `.reveal-explainer-prose` alongside the
+  // section, both inside the `.reveal-explainer` grid. The mechanism
+  // prose enters the viewport → mechanism gains data-bnt-active.
+  // (Cloud may briefly retain it due to overlapping intersections at
+  // the section boundary; the patched keydown listener picks the first
+  // one in document order, the documented behavior. See
+  // G1c3b_PR_REVIEW.md §1.4 (S1).)
+  const mechanismWrapper = page.locator(
+    '.reveal-explainer:has([data-bnt-kind="mechanism"])'
+  );
+  await mechanismWrapper
+    .locator('[data-beat-n="3"]')
+    .scrollIntoViewIfNeeded();
+  await expect(mechanism).toHaveAttribute("data-bnt-active", "true", {
+    timeout: 5_000,
+  });
+});
+
 test("unknown halo id resolves to the not-found page", async ({ page }) => {
   // Under output:'export' + dynamicParams:false, /p/no-such-halo/ has no
   // generated route. The host's 404 handler takes over.
