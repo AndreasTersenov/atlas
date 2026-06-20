@@ -31,7 +31,8 @@ test("halo page renders the MDX content", async ({ page }, testInfo) => {
 
   // trailingSlash:true emits /p/bnt-cnn/ as the canonical URL. Hitting the
   // trailing-slash form keeps GH Pages parity (no redirect cost).
-  await page.goto("/p/bnt-cnn/", { waitUntil: "load" });
+  const response = await page.goto("/p/bnt-cnn/", { waitUntil: "load" });
+  expect(response?.status()).toBe(200);
 
   // The frontmatter title appears as the page <h1>.
   const heading = page.getByRole("heading", {

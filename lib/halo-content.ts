@@ -8,11 +8,18 @@
 //   content/halos/<id>.mdx    — canonical for page metadata (title,
 //                                tagline, link list, explainer config)
 //
-// Build rules enforced by `assertHaloContentCoherence` below:
-//   • Every MDX file's frontmatter halo_id must exist in halos.json
-//     (loud build failure on drift — caller crashes the build).
-//   • Halos in halos.json without an MDX file are tolerated; their
-//     /p/<id> route 404s deliberately until written.
+// Drift checks split between two layers:
+//   • `listMdxHaloIds()` (this file) — enforces that every MDX
+//     filename id under content/halos/ exists in data/halos.json.
+//     Runs once per build via generateStaticParams. Throws on drift.
+//   • app/p/[haloId]/page.tsx (per-page) — enforces that each MDX
+//     file's frontmatter `halo_id` matches the URL segment / filename
+//     it was loaded from. Runs at build time per static path. Catches
+//     the case where the filename and frontmatter disagree (e.g. a
+//     copy-pasted file that wasn't fully renamed).
+//
+// Halos in data/halos.json without an MDX file are tolerated; their
+// /p/<id> route 404s deliberately until written.
 
 import { promises as fs } from "node:fs";
 import path from "node:path";

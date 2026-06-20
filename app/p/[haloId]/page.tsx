@@ -39,6 +39,21 @@ export default async function HaloPage({ params }: PageProps) {
   }
 
   const fm = HaloFrontmatter.parse(mod.frontmatter);
+
+  // Coherence between filename and frontmatter halo_id. Without this,
+  // a copy-pasted MDX where the file was renamed but the frontmatter
+  // wasn't would silently render the wrong title/links under the new
+  // URL. This runs at build time per generated path (output:'export'
+  // pre-renders every params combination), so any mismatch is a
+  // build failure with the offending halo named.
+  if (fm.halo_id !== haloId) {
+    throw new Error(
+      `[/p/${haloId}] frontmatter halo_id is "${fm.halo_id}" but the MDX ` +
+        `file was loaded as "${haloId}". Rename the file or fix the ` +
+        `frontmatter so they agree. See V2_SHOWCASE_PLAN §I.`
+    );
+  }
+
   const Body = mod.default;
 
   return (
