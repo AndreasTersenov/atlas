@@ -48,6 +48,7 @@ export default function SmokeExplainerPage() {
           attach="SmokeExplainer"
           kind="smoke"
           acts={ACTS}
+          sectionContent={<span data-role="smoke-act">1</span>}
         >
           <Beat n={1}>
             <p>Beat 1 — initial state. Act counter should show 1.</p>

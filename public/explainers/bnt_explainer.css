@@ -1,0 +1,266 @@
+/* ===========================================================================
+ * BNT explainer slide — styling
+ * Deck-theme independent: scoped under .bnt-slide so it won't fight whatever
+ * reveal theme the real deck uses. Wong palette, big fonts, high contrast,
+ * colourblind-safe (no red/green pairing; colour encodes METHOD only).
+ * ======================================================================== */
+
+.bnt-slide {
+  --c-l1:   #D55E00;   /* ell-1 (wavelet)  — Wong vermillion */
+  --c-cnn:  #0072B2;   /* CNN (VMIM)       — Wong blue       */
+  --c-deep: #1d6f5c;
+  --ink:    #1b2733;
+  --mute:   #6c7884;
+  --paper:  #ffffff;
+
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  text-align: left;
+  box-sizing: border-box;
+  padding: 0 2.2% 0;
+}
+
+/* reveal centres text by default; reset for our layout */
+.bnt-slide * { box-sizing: border-box; }
+.bnt-slide h3.bnt-title {
+  font-size: 28px;
+  line-height: 1.18;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 6px 0 8px;
+  color: var(--ink);
+  text-transform: none;
+}
+.bnt-slide .hl-l1  { color: var(--c-l1); }
+.bnt-slide .hl-cnn { color: var(--c-cnn); }
+
+/* ----------------------------- stage layout ----------------------------- */
+.bnt-slide .bnt-stage {
+  display: grid;
+  grid-template-columns: 1fr 232px;
+  gap: 14px;
+  align-items: stretch;
+  height: 540px;      /* taller than before so the slide is not top-heavy; reveal centres it */
+}
+.bnt-slide .bnt-main {
+  position: relative;
+  background: #fbfcfd;
+  border: 1px solid #e7ecf1;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.bnt-slide .bnt-cloud,
+.bnt-slide .bnt-mech-lines,
+.bnt-slide .bnt-tp-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* slide 2/3 helpers */
+.bnt-slide .bnt-stage--wide { grid-template-columns: 1fr; }
+.bnt-slide .bnt-mech-cov { display: block; width: 100%; height: 116px; }
+.bnt-slide .bnt-mech-ladder .bnt-bars { gap: 10px; }
+.bnt-slide .bnt-mech-ladder .bnt-bar { width: 38px; }
+.bnt-slide .bnt-mech-ladder .bnt-bar-ratio { font-size: 11.5px; left: -4px; right: -4px; }
+.bnt-slide .bnt-mech-ladder .bnt-bar-name { font-size: 10.5px; bottom: -19px; left: -4px; right: -4px; line-height: 1.05; }
+.bnt-slide .bnt-cloud-tag {
+  position: absolute;
+  left: 12px; bottom: 10px;
+  font-size: 12.5px;
+  font-style: italic;
+  color: var(--mute);
+  background: rgba(255,255,255,0.72);
+  padding: 2px 8px;
+  border-radius: 5px;
+}
+
+.bnt-slide .bnt-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ------------------------------- meter ---------------------------------- */
+.bnt-slide .bnt-meter {
+  flex: 1 1 auto;
+  background: #fbfcfd;
+  border: 1px solid #e7ecf1;
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.bnt-slide .bnt-meter-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--mute);
+  letter-spacing: 0.01em;
+  margin-bottom: 6px;
+}
+.bnt-slide .bnt-meter-plot {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 168px;
+  margin: 2px 0 6px;
+}
+/* The bars live in an inset region: a 26px header band (ratio labels, below the
+   title) and a 24px footer band (bar names) so nothing collides. */
+.bnt-slide .bnt-bars {
+  position: absolute;
+  left: 6px; right: 6px; top: 26px; bottom: 24px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  justify-content: center;
+}
+.bnt-slide .bnt-bar {
+  position: relative;
+  width: 60px;
+  height: 100%;
+}
+.bnt-slide .bnt-bar-fill {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  border-radius: 5px 5px 0 0;
+  height: 0%;
+  transition: none;            /* JS animates per frame */
+  z-index: 2;
+}
+.bnt-slide .bnt-bar--l1  .bnt-bar-fill { background: var(--c-l1); }
+.bnt-slide .bnt-bar--cnn .bnt-bar-fill { background: var(--c-cnn); }
+.bnt-slide .bnt-bar--cnn { opacity: 0; transition: opacity 0.4s ease; }
+.bnt-slide .bnt-bar-ratio {
+  position: absolute;
+  top: -23px; left: -8px; right: -8px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  z-index: 4;
+}
+.bnt-slide .bnt-bar--l1  .bnt-bar-ratio { color: var(--c-l1); }
+.bnt-slide .bnt-bar--cnn .bnt-bar-ratio { color: var(--c-cnn); }
+.bnt-slide .bnt-bar-name {
+  position: absolute;
+  bottom: -21px; left: -8px; right: -8px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.bnt-slide .bnt-bar--l1  .bnt-bar-name { color: var(--c-l1); }
+.bnt-slide .bnt-bar--cnn .bnt-bar-name { color: var(--c-cnn); }
+
+.bnt-slide .bnt-baseline {
+  position: absolute;
+  left: 0; right: 0;
+  border-top: 1.5px dashed #b6c0ca;
+  z-index: 1;
+}
+.bnt-slide .bnt-baseline span {
+  position: absolute;
+  right: 0; top: -8px;
+  font-size: 10.5px;
+  color: var(--mute);
+  background: #fbfcfd;
+  padding: 0 3px;
+}
+.bnt-slide .bnt-meter-abs {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+.bnt-slide .bnt-meter-marg {
+  font-size: 12px;
+  color: var(--mute);
+  margin-top: 3px;
+  min-height: 16px;
+}
+
+/* ----------------------------- kernel inset ----------------------------- */
+.bnt-slide .bnt-kernels-wrap {
+  flex: 0 0 auto;
+  background: #fbfcfd;
+  border: 1px solid #e7ecf1;
+  border-radius: 10px;
+  padding: 8px 10px 10px;
+}
+.bnt-slide .bnt-kernels-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mute);
+  margin-bottom: 2px;
+}
+.bnt-slide .bnt-kernels {
+  display: block;
+  width: 100%;
+  height: 96px;
+}
+.bnt-slide .bnt-kernels-caption {
+  font-size: 11.5px;
+  color: var(--mute);
+  margin-top: 2px;
+  min-height: 15px;
+  line-height: 1.2;
+}
+
+/* ------------------------------- caption -------------------------------- */
+.bnt-slide .bnt-caption {
+  font-size: 19px;
+  line-height: 1.34;
+  margin: 12px 2px 0;
+  min-height: 78px;
+  color: var(--ink);
+}
+.bnt-slide .bnt-caption b { font-weight: 700; }
+.bnt-slide .bnt-caption .c-l1   { color: var(--c-l1);  font-weight: 700; }
+.bnt-slide .bnt-caption .c-cnn  { color: var(--c-cnn); font-weight: 700; }
+.bnt-slide .bnt-caption .c-deep { color: var(--c-deep); font-weight: 700; }
+.bnt-slide .bnt-caption .c-peak { color: #b8860b; font-weight: 700; }
+.bnt-slide .bnt-actno {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--mute);
+  border-radius: 6px;
+  padding: 1px 8px;
+  margin-right: 10px;
+  vertical-align: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------ footnote -------------------------------- */
+.bnt-slide .bnt-footnote {
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: var(--mute);
+  margin: 10px 2px 0;
+}
+.bnt-slide .bnt-footnote em { font-style: italic; color: #4a5662; }
+
+/* ------------------------------- replay --------------------------------- */
+.bnt-slide .bnt-replay {
+  position: absolute;
+  right: 2.4%;
+  top: 10px;
+  font: 600 13px ui-sans-serif, system-ui, sans-serif;
+  color: var(--mute);
+  background: #fff;
+  border: 1px solid #d9e0e7;
+  border-radius: 7px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.bnt-slide .bnt-replay:hover { color: var(--ink); border-color: #b6c0ca; }
+
+/* The fragment markers are invisible; they only drive the JS. */
+.bnt-slide .bnt-frag {
+  position: absolute;
+  width: 0; height: 0;
+  opacity: 0 !important;
+  pointer-events: none;
+}
