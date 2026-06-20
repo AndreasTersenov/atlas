@@ -11,6 +11,7 @@
 // If this test goes red, every downstream v2 PR has nothing to build on.
 
 import { expect, test } from "@playwright/test";
+import { p } from "./url";
 
 test("public homepage renders the cosmic web map", async ({ page }, testInfo) => {
   // Capture console errors as we go — the test fails if any fire before the
@@ -37,7 +38,7 @@ test("public homepage renders the cosmic web map", async ({ page }, testInfo) =>
   // fetching and hydration has begun by the time we proceed — otherwise
   // hydration-time console.errors race with the listener attached above
   // and can mask the actual test assertions.
-  await page.goto("/", { waitUntil: "load" });
+  await page.goto(p("/"), { waitUntil: "load" });
 
   // The map's canvas carries an aria-label we set in v0 — that's our
   // resilient handle.

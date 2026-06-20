@@ -3,12 +3,15 @@
 # Triggers on PRs targeting v2.0-showcase (where v2 work lands first) and on
 # pushes to v2.0-showcase + main (post-squash-merge verification).
 #
-# As of G.1.a (next.config migration), the Playwright webServer runs
-# `npm run build && npx serve out/` — so the e2e job now verifies the
-# production runtime, not just dev. The previous separate `build` job
-# was collapsed because its work is redundant with the build step inside
-# webServer; if a future change makes build verification valuable
-# separately (e.g. matrix across node versions), we re-split.
+# Matrix runs the e2e suite against both deploy targets:
+#   - vercel  : no basePath. Playwright serves out/ at /, hits / and /p/<id>/.
+#   - ghpages : NEXT_PUBLIC_ATLAS_BASE_PATH=/atlas. Playwright builds with
+#               basePath, mounts out/ under .test-mount/atlas/, serves at
+#               /, hits /atlas/ and /atlas/p/<id>/. This is the gate the
+#               G1b_PR_REVIEW.md §S5 carry-forward asked for — must exist
+#               before G.1.c lands the <RevealExplainer> wrapper, which is
+#               where dynamically injected basePath-sensitive asset URLs
+#               first appear.
 #
 # Per docs/V2_SHOWCASE_PLAN.md §G.0 + AGENTS.md "Tests are not optional".
 
@@ -28,9 +31,22 @@ concurrency:
 
 jobs:
   e2e:
-    name: Playwright e2e (production build)
+    name: Playwright e2e (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: vercel
+            base_path: ""
+          - target: ghpages
+            base_path: "/atlas"
+
+    env:
+      ATLAS_TEST_TARGET: ${{ matrix.target }}
+      NEXT_PUBLIC_ATLAS_BASE_PATH: ${{ matrix.base_path }}
 
     steps:
       - uses: actions/checkout@v4
@@ -64,14 +80,14 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
-      - name: Run Playwright e2e (build + serve out/)
+      - name: Run Playwright e2e
         run: npm run test:e2e
 
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.target }}
           path: |
             playwright-report
             test-results

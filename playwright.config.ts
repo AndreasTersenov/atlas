@@ -1,23 +1,48 @@
-// Playwright config for Atlas v2 — see docs/V2_SHOWCASE_PLAN.md §G.0 + AGENTS.md
-// "Tests are not optional".
+// Playwright config for Atlas v2. Drives both deploy targets:
 //
-// As of G.1.a (next.config migration), webServer builds the static export and
-// serves out/. This is what we actually ship to both Vercel and GH Pages, so
-// the green check now means the production runtime renders — not just dev.
-// The earlier dev-server-backed setup conflated two different guarantees;
-// see docs/G0_PR_REVIEW.md §1.1 for the staff-engineer review that prompted
-// the switch.
+//   - Vercel (default): no basePath, baseURL = http://localhost:PORT/
+//   - GH Pages       : NEXT_PUBLIC_ATLAS_BASE_PATH=/atlas, baseURL =
+//                       http://localhost:PORT/, served from a mount dir so
+//                       /atlas/p/bnt-cnn/ resolves correctly.
+//
+// The same test files run against both — tests use the `p()` helper in
+// tests/e2e/url.ts to prepend basePath where relevant. See
+// docs/G0_PR_REVIEW.md §1.1 (production-runtime guarantee) and
+// docs/G1b_PR_REVIEW.md §S5 (basePath CI gate must exist before G.1.c).
 
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 3000;
-const baseURL = `http://localhost:${PORT}`;
+const BASE_URL = `http://localhost:${PORT}`;
+
+// Switched via env var so the same config drives both CI matrix legs.
+// ATLAS_TEST_TARGET=ghpages → build + mount + serve under /atlas/.
+// Anything else (including unset) → the default Vercel-target build.
+const TARGET = process.env.ATLAS_TEST_TARGET === "ghpages" ? "ghpages" : "vercel";
+
+// webServer commands. Both use `exec` so SIGTERM from Playwright lands on
+// `serve` directly rather than the parent shell (otherwise an orphan can
+// hold the port and the next run fails as EADDRINUSE masquerading as a
+// build problem). See G1a_PR_REVIEW.md §1.4.
+const vercelCmd =
+  `npm run build && ` +
+  `exec npx serve out -l ${PORT} --no-port-switching --no-clipboard`;
+
+// For the GH-Pages target: build with the basePath set, then stage out/ at
+// .test-mount/atlas/ so a request for /atlas/p/bnt-cnn/ resolves correctly
+// against `serve`'s default file-system lookup. (serve has no URL rewrite.)
+// We can't run two builds in parallel locally — the build clobbers out/ —
+// but in CI the two targets run in separate jobs so there's no conflict.
+const ghpagesCmd =
+  `NEXT_PUBLIC_ATLAS_BASE_PATH=/atlas npm run build && ` +
+  `rm -rf .test-mount && mkdir -p .test-mount/atlas && ` +
+  `cp -r out/. .test-mount/atlas/ && ` +
+  `exec npx serve .test-mount -l ${PORT} --no-port-switching --no-clipboard`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  // Some flakiness budget on CI for cold-start; locally fail fast.
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: [
@@ -26,9 +51,7 @@ export default defineConfig({
   ],
 
   use: {
-    baseURL,
-    // Capture trace + screenshot on first retry so CI failures are debuggable
-    // without re-running. Per AGENTS.md "Evidence over assertion".
+    baseURL: BASE_URL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -41,24 +64,13 @@ export default defineConfig({
   ],
 
   webServer: {
-    // Build the static export, then `exec` into `serve` so it becomes a
-    // direct child of the process Playwright manages. Without `exec` the
-    // shell wrapper survives only as long as it's running `npm run build`;
-    // once `serve` starts, the shell waits and SIGTERM on Playwright
-    // shutdown lands on the shell, which may or may not forward it cleanly.
-    // On hard kill (180s CI timeout / SIGKILL), `serve` can survive as an
-    // orphan holding port 3000 — the next run then 'EADDRINUSE'-fails
-    // during build (npm exits 0, serve can't bind) and looks like a build
-    // problem. `exec` replaces the shell so SIGTERM lands on serve directly.
-    //
-    // Locally, reuseExistingServer skips the rebuild step — convenient,
-    // but watch out: a stale `serve` left running from a previous build
-    // serves stale `out/` artifacts. If source has changed, kill the
-    // server before re-running. On CI we always cold-start.
-    command: `npm run build && exec npx serve out -l ${PORT} --no-port-switching --no-clipboard`,
-    url: baseURL,
+    command: TARGET === "ghpages" ? ghpagesCmd : vercelCmd,
+    url: BASE_URL,
+    // Locally reuse a running server to skip the rebuild step. CI always
+    // cold-starts. Caveat: a stale `serve` from a previous build serves
+    // stale out/ artifacts — kill it before re-running on source change.
     reuseExistingServer: !process.env.CI,
-    // Next build can take ~30s on a cold CI cache; allow generous headroom.
+    // Next build + asset copy can take ~30s on a cold CI cache.
     timeout: 180_000,
     stdout: "pipe",
     stderr: "pipe",
