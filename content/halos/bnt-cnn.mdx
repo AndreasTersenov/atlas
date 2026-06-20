@@ -38,6 +38,7 @@ goes. Scroll through each one; press **R** to replay the active animation.
   acts={5}
   sectionClassName="bnt-slide"
   sectionContent={<BNTCloudSection />}
+  label="The cloud engine: shadows of a rotating cloud"
 >
   <Beat n={1}>
     Four maps in channel-space → a fixed cloud of pixels. A per-channel
@@ -74,6 +75,7 @@ goes. Scroll through each one; press **R** to replay the active animation.
   acts={5}
   sectionClassName="bnt-slide"
   sectionContent={<BNTMechanismSection />}
+  label="The mechanism engine: signal and noise under BNT"
 >
   <Beat n={1}>
     Four tomographic maps share a common signal under noise. The auto
@@ -89,9 +91,10 @@ goes. Scroll through each one; press **R** to replay the active animation.
     The recovery ladder shows the FoM falling.
   </Beat>
   <Beat n={4}>
-    Adding cross-maps recovers some of the signal: the cross terms
-    encode the cloud's joint structure. The CNN does even better
-    because it can mix freely.
+    Adding cross-maps recovers some of the signal — roughly the
+    pairwise share. The ℓ¹ is nonlinear, so no finite set of
+    cross-products closes the joint structure. The CNN does better:
+    it learns to undo the BNT mixing directly in its first layer.
   </Beat>
   <Beat n={5}>
     Whitening makes the noise covariance back into identity. The
@@ -111,6 +114,7 @@ goes. Scroll through each one; press **R** to replay the active animation.
   acts={5}
   sectionClassName="bnt-slide"
   sectionContent={<BNTTwoPointSection />}
+  label="The twopoint engine: the 2-point fingerprint"
 >
   <Beat n={1}>
     The auto+cross spectrum matrix C of the four maps. The diagonal is
@@ -121,18 +125,21 @@ goes. Scroll through each one; press **R** to replay the active animation.
     invertibly — no information is lost at the two-point level.
   </Beat>
   <Beat n={3}>
-    Keeping only the diagonal (auto-only ℓ¹) throws away the
-    off-diagonal information. That projection is not invertible.
+    The transform is linear: multiply back with B⁻¹ and the full
+    spectrum matrix is exactly recovered. Ĉ = B⁻¹ Ĉ′ B⁻ᵀ. Nothing is
+    lost — auto+cross power spectra are exactly BNT-invariant.
   </Beat>
   <Beat n={4}>
-    The collapse measured at the two-point level matches the
-    auto-only-vs-full gap. Much of the ℓ¹-norm collapse is
-    two-point-recoverable.
+    Keep only the diagonal — the auto-spectra alone — and the
+    off-diagonals are gone. From auto-only you can't reconstruct Ĉ.
+    The collapse is a discarding problem, not a destruction problem.
   </Beat>
   <Beat n={5}>
-    But there's a residue: the part of the higher-order ℓ¹ structure
-    that is genuinely joint and irreducibly multi-map. The CNN's
-    learned mixing captures it; auto-only summaries can't.
+    The ℓ¹ norm fails for the same reason but at the histogram level:
+    B mixes the channels, then the per-channel marginalization throws
+    away the joint information. It's a mix-then-marginalize. The CNN
+    escapes by learning the inverse mixing in its first layer. Nothing
+    is irreducibly lost — the collapse is the choice of basis.
   </Beat>
 </RevealExplainer>
 

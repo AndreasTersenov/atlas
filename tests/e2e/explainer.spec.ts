@@ -182,11 +182,15 @@ test.describe("RevealExplainer wrapper", () => {
     await next.click();
     await expect(counter).toHaveText("3 / 5");
 
-    // Wait past the typical smooth-scroll duration (Chromium defaults
-    // ~300ms for behavior:"smooth"), then re-assert. If the IO won the
-    // race, the counter would already have drifted to a transitional
-    // value (2 or 4) by this point.
-    await page.waitForTimeout(350);
+    // Don't fixed-sleep past the smooth-scroll: on slow CI the scroll can
+    // take 400ms+ and a 350ms sleep returns before the IO would override.
+    // Instead, wait for the target beat to be in the IO trigger zone
+    // (this is a strong proxy for "scroll has settled") and re-assert
+    // the counter held. If the IO won the race during the smooth-scroll
+    // animation, the counter would have drifted to a transitional value
+    // before this assertion.
+    const targetBeat = page.locator('[data-beat-n="3"]');
+    await targetBeat.waitFor({ state: "visible" });
     await expect(counter).toHaveText("3 / 5");
   });
 
