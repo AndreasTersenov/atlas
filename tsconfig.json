@@ -30,21 +30,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  // Dead v1 code, scheduled for deletion in G.1.f (V2_SHOWCASE_PLAN §D
-  // Phase 2). Excluding now so the build doesn't fail when G.1.f removes
-  // @supabase/*, chokidar, etc. — the import sites in these files would
-  // otherwise tank tsc.
-  "exclude": [
-    "node_modules",
-    "lib/supabase-server.ts",
-    "lib/supabase-browser.ts",
-    "lib/supabase-admin.ts",
-    "lib/database.types.ts",
-    "lib/atlas-mapping.ts",
-    "lib/atlas-transcript.ts",
-    "lib/github.ts",
-    "lib/safe-next.ts",
-    "scripts/atlas-bridge.ts",
-    "scripts/seed.ts"
-  ]
+  "exclude": ["node_modules"]
 }
