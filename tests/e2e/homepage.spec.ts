@@ -10,8 +10,51 @@
 //
 // If this test goes red, every downstream v2 PR has nothing to build on.
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 import { p } from "./url";
+import halosData from "../../data/halos.json";
+import { VIEW_W, VIEW_H } from "../../components/CosmicWebMap/colors";
+
+interface HaloRecord {
+  id: string;
+  position_x: number;
+  position_y: number;
+  radius: number;
+  is_public?: boolean;
+}
+
+// Shared hydration gate for click tests. The map sets canvas.width via its
+// ResizeObserver, then React hydrates and wires onClick. Both happen after
+// the canvas becomes "visible" — clicking before width > 100 races
+// hydration and can produce a no-op click that looks like the production
+// non-clickable path. The smoke test (above) documents this; the click
+// tests must wait too. See G1d_PR_REVIEW.md §1.1 (S1).
+async function waitForCanvasReady(canvas: Locator): Promise<void> {
+  await expect(canvas).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(async () => canvas.evaluate((el) => (el as HTMLCanvasElement).width), {
+      message:
+        "canvas.width never grew past 100 — ResizeObserver / hydration didn't run",
+      timeout: 5_000,
+    })
+    .toBeGreaterThan(100);
+}
+
+// Maps a halo's view-space center to pixel coords inside the rendered
+// canvas using the same rect-scaling the renderer's hit-test uses.
+async function clickPointForHalo(
+  page: Page,
+  canvas: Locator,
+  halo: Pick<HaloRecord, "position_x" | "position_y">
+): Promise<{ x: number; y: number }> {
+  void page;
+  const rect = await canvas.boundingBox();
+  expect(rect, "canvas has no bounding box").not.toBeNull();
+  return {
+    x: rect!.x + (halo.position_x / VIEW_W) * rect!.width,
+    y: rect!.y + (halo.position_y / VIEW_H) * rect!.height,
+  };
+}
 
 test("public homepage renders the cosmic web map", async ({ page }, testInfo) => {
   // Capture console errors as we go — the test fails if any fire before the
@@ -113,4 +156,70 @@ test("public homepage renders the cosmic web map", async ({ page }, testInfo) =>
     consoleErrors,
     `Console errors during homepage load:\n${consoleErrors.join("\n")}`
   ).toHaveLength(0);
+});
+
+test("clicking the bnt-cnn halo navigates to /p/bnt-cnn/", async ({ page }) => {
+  // G.1.d: clickability is gated on listMdxHaloIds() at build time, so
+  // only halos with a content/halos/<id>.mdx file route on click. bnt-cnn
+  // is the one MDX page that exists; clicking its glyph should land on
+  // /p/bnt-cnn/.
+  await page.goto(p("/"), { waitUntil: "load" });
+
+  const canvas = page.getByRole("img", {
+    name: /Atlas — a personal cosmic web of projects/i,
+  });
+  await waitForCanvasReady(canvas);
+
+  const bnt = (halosData as HaloRecord[]).find((h) => h.id === "bnt-cnn");
+  expect(bnt, "data/halos.json missing bnt-cnn record").toBeDefined();
+
+  // Pixel-space click target — halo center (dist 0 < r), robust to small
+  // scaling differences across CI viewports.
+  const { x, y } = await clickPointForHalo(page, canvas, bnt!);
+  await page.mouse.click(x, y);
+
+  // Next router pushes the path; under static export the route is
+  // pre-rendered and visiting it loads /p/bnt-cnn/. waitForURL is
+  // basePath-aware as long as we use the path-only matcher.
+  await page.waitForURL(/\/p\/bnt-cnn\/?(\?|#|$)/, { timeout: 5_000 });
+  await expect(
+    page.getByRole("heading", {
+      name: "BNT × CNN: a basis-robust summary",
+      level: 1,
+    })
+  ).toBeVisible();
+});
+
+test("clicking a halo without a /p/ page is a no-op", async ({ page }) => {
+  // G.1.d: the homepage passes clickableHaloIds=listMdxHaloIds(), so any
+  // halo that doesn't have content/halos/<id>.mdx is rendered but inert
+  // — clicks should not navigate. We use "thesis": no MDX file (G.1.b
+  // only wrote bnt-cnn.mdx) but a public glyph that's still visible.
+  await page.goto(p("/"), { waitUntil: "load" });
+
+  const canvas = page.getByRole("img", {
+    name: /Atlas — a personal cosmic web of projects/i,
+  });
+  await waitForCanvasReady(canvas);
+
+  const target = (halosData as HaloRecord[]).find((h) => h.id === "thesis");
+  expect(target, "data/halos.json missing thesis record").toBeDefined();
+  // Make the test's assumption about thesis explicit — if a future
+  // halos.json edit drops it from the public layer, the click would land
+  // on empty canvas and the URL-unchanged assertion would pass for the
+  // wrong reason. See G1d_PR_REVIEW.md §2.2 (N3).
+  expect(
+    target!.is_public,
+    "thesis must be public for this test to exercise the inert-click path"
+  ).toBe(true);
+
+  const { x, y } = await clickPointForHalo(page, canvas, target!);
+  const beforeUrl = page.url();
+  await page.mouse.click(x, y);
+
+  // Wait briefly to give any unintended router.push a chance to fire.
+  // 250ms is well beyond Next's same-task scheduling — if a navigation
+  // were going to happen, the URL would change within this window.
+  await page.waitForTimeout(250);
+  expect(page.url()).toBe(beforeUrl);
 });
