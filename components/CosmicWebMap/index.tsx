@@ -10,12 +10,17 @@ interface Props {
   halos: Halo[];
   filaments: Filament[];
   // When set, halo clicks navigate to `${linkPrefix}${haloId}` instead of
-  // logging. Cockpit passes "/cockpit/" to get per-halo command panels; the
-  // public map omits it so clicks stay no-ops until v2 ships `/p/[halo-id]`.
+  // logging. v2 public homepage passes "/p/" (G.1.d).
   linkPrefix?: string;
-  // Per-halo activity score in [0, 1] driven by Claude session recency
-  // (v1.5). Cockpit fetches it from claude_sessions; the public map omits
-  // it and gets the v1.4-identical render.
+  // If provided, restricts which halos respond to clicks AND show the
+  // pointer cursor on hover. Halos not in the set still render and still
+  // emit hover overlays — they're visible but inert. v2 sources this from
+  // listMdxHaloIds() at build time so users can't click a halo whose
+  // /p/[haloId] page doesn't exist and end up on a 404.
+  clickableHaloIds?: Set<string>;
+  // Per-halo activity score in [0, 1]. v2 will source this at build time
+  // from `git log --since=30d` (see V2_SHOWCASE_PLAN §I). The renderer
+  // treats absent halos as 0 and scales haze alpha by (1 + 0.3 * score).
   activityByHaloId?: Record<string, number>;
 }
 
@@ -25,6 +30,7 @@ export default function CosmicWebMap({
   halos,
   filaments,
   linkPrefix,
+  clickableHaloIds,
   activityByHaloId,
 }: Props) {
   const router = useRouter();
@@ -137,12 +143,22 @@ export default function CosmicWebMap({
 
   const onLeave = () => setHoveredId(null);
 
+  // When the caller hasn't provided a clickability set, NOTHING is
+  // clickable — including any future caller that passes `linkPrefix`
+  // without `clickableHaloIds`. The previous default (undefined → all
+  // clickable) was a footgun: a "just wire up navigation" caller would
+  // route every halo click to a potentially-nonexistent /<prefix>/<id>
+  // and produce 404s. See G1d_PR_REVIEW.md §1.2 (S2).
+  const isClickable = (id: string): boolean =>
+    clickableHaloIds !== undefined && clickableHaloIds.has(id);
+
   const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const hit = hitTest(e.clientX, e.clientY);
     if (!hit) return;
+    if (!isClickable(hit.id)) return;
     if (linkPrefix) {
-      // Tolerate callers that pass "/cockpit" or "/cockpit/" identically —
-      // otherwise the former joins as "/cockpitthesis".
+      // Tolerate callers that pass "/p" or "/p/" identically — otherwise
+      // the former joins as "/pthesis".
       const base = linkPrefix.endsWith("/") ? linkPrefix.slice(0, -1) : linkPrefix;
       router.push(`${base}/${hit.id}`);
       return;
@@ -163,7 +179,13 @@ export default function CosmicWebMap({
         role="img"
         aria-label="Atlas — a personal cosmic web of projects"
         style={{
-          cursor: hoveredId ? "pointer" : "default",
+          // Pointer cursor only for halos that are actually clickable.
+          // Non-clickable halos still show the hover overlay (a brighter
+          // glow + the halo's name label, both drawn into the canvas —
+          // no DOM elements, no anchor tags) so users get the name on
+          // hover, but the cursor staying `default` signals inertness.
+          cursor:
+            hoveredId && isClickable(hoveredId) ? "pointer" : "default",
           display: "block",
         }}
       />

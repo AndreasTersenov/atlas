@@ -1,0 +1,151 @@
+---
+halo_id: bnt-cnn
+title: "BNT × CNN: a basis-robust summary"
+tagline: "Why the wavelet ℓ1-norm collapses under BNT while the CNN doesn't."
+links:
+  - { kind: github, href: "https://github.com/AndreasTersenov/cnn_sbi", label: "cnn_sbi (code)" }
+  - { kind: talk,   href: "https://andreastersenov.github.io/talks/NonGaussian_Universe_2026/", label: "Talk slides — Non-Gaussian Universe (2026)" }
+related_halos: [thesis, wavelet-l1-norm, mass-map-uncertainty]
+---
+
+import RevealExplainer, { Beat } from "@/components/RevealExplainer";
+import {
+  BNTCloudSection,
+  BNTMechanismSection,
+  BNTTwoPointSection,
+} from "@/components/BNTExplainer/sections";
+
+The wavelet ℓ¹ norm is a powerful non-Gaussian summary statistic for
+weak-lensing maps. It collapses, however, the moment you apply the BNT
+(Bernardeau–Nishimichi–Taruya) transform — even with cross-channel maps.
+The CNN, trained on the same maps, does not.
+
+Three explainers walk through why that happens and where the information
+goes. Scroll through each one; press **R** to replay the active animation.
+
+## 1. The shadows of a rotating cloud — the cloud engine
+
+> **Editorial placeholder.** Five beats walking through the
+> shadow-of-a-cloud picture. The full prose lives in
+> `HANDOFF_BNT_VIZ_TALK.md` §1 in the cnn_sbi repo; this MDX block
+> currently has scaffolding-only text so the scrollytelling drives
+> the engine. Andreas refines the prose pass.
+
+<RevealExplainer
+  module="bnt_explainer"
+  attach="BNTExplainer"
+  kind="cloud"
+  acts={5}
+  sectionClassName="bnt-slide"
+  sectionContent={<BNTCloudSection />}
+  label="The cloud engine: shadows of a rotating cloud"
+>
+  <Beat n={1}>
+    Four maps in channel-space → a fixed cloud of pixels. A per-channel
+    ℓ¹ norm is the cloud's shadow on one axis.
+  </Beat>
+  <Beat n={2}>
+    BNT shears the measuring axes off the cloud's long direction. The
+    new shadows go blank. **The cloud itself never moves.**
+  </Beat>
+  <Beat n={3}>
+    The cosmology lives in the cloud's shape, not in any single-map
+    shadow. In this frame, marginal histograms can't see it.
+  </Beat>
+  <Beat n={4}>
+    The CNN mixes channels in its first layer and draws its own axis
+    back along the cloud. It's basis-robust, not "smarter."
+  </Beat>
+  <Beat n={5}>
+    Whitening rotates to a different clean frame — per-map shadows are
+    rich again. Nothing was lost; the collapse was about the choice
+    of basis.
+  </Beat>
+</RevealExplainer>
+
+## 2. Signal and noise under BNT — the mechanism engine
+
+> **Editorial placeholder.** The recovery-ladder narrative
+> (auto → +cross → CNN → whiten). Andreas refines.
+
+<RevealExplainer
+  module="bnt_explainer"
+  attach="BNTExplainer"
+  kind="mechanism"
+  acts={5}
+  sectionClassName="bnt-slide"
+  sectionContent={<BNTMechanismSection />}
+  label="The mechanism engine: signal and noise under BNT"
+>
+  <Beat n={1}>
+    Four tomographic maps share a common signal under noise. The auto
+    ℓ¹ tally reads the signal directly.
+  </Beat>
+  <Beat n={2}>
+    BNT differences the maps. The common signal collapses into a
+    shallow map; what remains is thin lens-redshift slices with
+    amplified, correlated noise.
+  </Beat>
+  <Beat n={3}>
+    Per-map auto-ℓ¹ in the new basis sees mostly the amplified noise.
+    The recovery ladder shows the FoM falling.
+  </Beat>
+  <Beat n={4}>
+    Adding cross-maps recovers some of the signal — roughly the
+    pairwise share. The ℓ¹ is nonlinear, so no finite set of
+    cross-products closes the joint structure. The CNN does better:
+    it learns to undo the BNT mixing directly in its first layer.
+  </Beat>
+  <Beat n={5}>
+    Whitening makes the noise covariance back into identity. The
+    signal that BNT scrambled is recoverable in this rotated frame.
+  </Beat>
+</RevealExplainer>
+
+## 3. The 2-point fingerprint — the twopoint engine
+
+> **Editorial placeholder.** What share of the BNT collapse is
+> genuinely two-point structure vs irreducibly joint. Andreas refines.
+
+<RevealExplainer
+  module="bnt_explainer"
+  attach="BNTExplainer"
+  kind="twopoint"
+  acts={5}
+  sectionClassName="bnt-slide"
+  sectionContent={<BNTTwoPointSection />}
+  label="The twopoint engine: the 2-point fingerprint"
+>
+  <Beat n={1}>
+    The auto+cross spectrum matrix C of the four maps. The diagonal is
+    auto-power; the off-diagonals are cross-power.
+  </Beat>
+  <Beat n={2}>
+    BNT acts on C by congruence: B C Bᵀ. The whole matrix transforms
+    invertibly — no information is lost at the two-point level.
+  </Beat>
+  <Beat n={3}>
+    The transform is linear: multiply back with B⁻¹ and the full
+    spectrum matrix is exactly recovered. Ĉ = B⁻¹ Ĉ′ B⁻ᵀ. Nothing is
+    lost — auto+cross power spectra are exactly BNT-invariant.
+  </Beat>
+  <Beat n={4}>
+    Keep only the diagonal — the auto-spectra alone — and the
+    off-diagonals are gone. From auto-only you can't reconstruct Ĉ.
+    The collapse is a discarding problem, not a destruction problem.
+  </Beat>
+  <Beat n={5}>
+    The ℓ¹ norm fails for the same reason but at the histogram level:
+    B mixes the channels, then the per-channel marginalization throws
+    away the joint information. It's a mix-then-marginalize. The CNN
+    escapes by learning the inverse mixing in its first layer. Nothing
+    is irreducibly lost — the collapse is the choice of basis.
+  </Beat>
+</RevealExplainer>
+
+## Pointers
+
+- **Code:** the SBI pipeline + CNN architecture used in this analysis
+  live in the [cnn_sbi repository](https://github.com/AndreasTersenov/cnn_sbi).
+- **Talk:** the [Non-Gaussian Universe 2026 slides](https://andreastersenov.github.io/talks/NonGaussian_Universe_2026/)
+  hold the same explainers as their original Reveal.js deck.
